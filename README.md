@@ -1,5 +1,13 @@
-The social problem is that people with reduced mobility find it hard to travel because there is little reliable information about how accessible hotels, transport and tourist attractions really are.
+# Overview
+AcessWay is an Android application designed to help people with reduced mobility and other accessibility needs to plan their visits to public places and tourist attractions. The application allows users to discover places on an interactive map and access practical information about their accessibility
 
-The app idea is an Android app where users log their trips and rate the accessibility of the places they visit, so that others can plan their trips with real, first-hand information.
+# Repository overview
+`docs/` contains the documentation of both how the app was being develop thorought the course as well as the initial setup of the app in case of wanting to contribute towards the project.
+Additional, raw documentation can be found on [Notion](https://app.notion.com/p/Mobile-Systems-Project-3f794243be478092ac8add311ba9b071?source=copy_link) where each week we documented our progress.
+`src/` contains source code of the Android application. Recommended Android Studio for development.
 
-TEAM: Sofía Fernández, Sandra Chic and Leo Ryba
+
+# Team overview
+- Sofía Fernández 906111
+- Sandra Chic 906258
+- Leo Ryba 252575
