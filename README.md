@@ -4,6 +4,7 @@ AcessWay is an Android application designed to help people with reduced mobility
 # Repository overview
 `docs/` contains the documentation of both how the app was being develop thorought the course as well as the initial setup of the app in case of wanting to contribute towards the project.
 Additional, raw documentation can be found on [Notion](https://app.notion.com/p/Mobile-Systems-Project-3f794243be478092ac8add311ba9b071?source=copy_link) where each week we documented our progress.
+
 `src/` contains source code of the Android application. Recommended Android Studio for development.
 
 
