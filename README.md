@@ -7,7 +7,7 @@ Additional, raw documentation can be found on [Notion](https://app.notion.com/p/
 
 [`src/`](src) contains source code of the Android application. Recommended Android Studio for development.
 
-`prototype/` contains prototype screens made in Figma. It includes 4 main screens Explore, Saved, Contribute and Preferences each in Light & High Contrast Mode.
+[`prototype/`](prototype) contains prototype screens made in Figma. It includes 4 main screens Explore, Saved, Contribute and Preferences each in Light & High Contrast Mode.
 
 
 # Team members
