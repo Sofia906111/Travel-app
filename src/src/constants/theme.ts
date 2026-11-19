@@ -1,6 +1,6 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://unistyl.es/), etc.
+ * Below are the colors that are used in the app. There are three palettes:
+ * light, dark and high contrast (chosen in the Preferences screen, see `hooks/use-theme.ts`).
  */
 
 import '@/global.css';
@@ -15,7 +15,12 @@ export const Colors = {
     backgroundSelected: '#E0E1E6',
     textSecondary: '#60646C',
     tabsColor: '#0E6E67',
-    danger: '#FF4242',
+    primary: '#0E6E67',
+    onPrimary: '#ffffff',
+    border: '#9AA5A4',
+    danger: '#B3261E',
+    success: '#1B6E2E',
+    info: '#1D4E89',
   },
   dark: {
     text: '#ffffff',
@@ -24,11 +29,34 @@ export const Colors = {
     backgroundSelected: '#2E3135',
     textSecondary: '#B0B4BA',
     tabsColor: '#0E6E67',
-    danger: '#FF4242',
+    primary: '#4FB8AE',
+    onPrimary: '#000000',
+    border: '#4A4E54',
+    danger: '#F2B8B5',
+    success: '#8FD19E',
+    info: '#9CC3F5',
+  },
+  /** Yellow on black, the usual high contrast scheme for low-vision users. */
+  highContrast: {
+    text: '#ffffff',
+    background: '#000000',
+    backgroundElement: '#141414',
+    backgroundSelected: '#333333',
+    textSecondary: '#ffffff',
+    tabsColor: '#FFD600',
+    primary: '#FFD600',
+    onPrimary: '#000000',
+    border: '#ffffff',
+    danger: '#FF8A80',
+    success: '#7CFF7C',
+    info: '#7CC8FF',
   },
 } as const;
 
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+export type ThemeName = keyof typeof Colors;
+export type ThemeColor = keyof typeof Colors.light &
+  keyof typeof Colors.dark &
+  keyof typeof Colors.highContrast;
 
 export const Fonts = Platform.select({
   ios: {

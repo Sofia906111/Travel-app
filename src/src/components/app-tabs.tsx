@@ -1,11 +1,10 @@
 import { NativeTabs } from 'expo-router/native-tabs';
-import { useColorScheme } from 'react-native';
 
-import { Colors } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 export default function AppTabs() {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === 'dark' ? 'dark' : 'light'];
+  // Follows the theme chosen in Preferences (light / dark / high contrast).
+  const colors = useTheme();
 
   // `Material Symbol name: https://fonts.google.com/icons
   const paths = [

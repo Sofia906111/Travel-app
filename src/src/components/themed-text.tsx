@@ -1,6 +1,7 @@
-import { Platform, StyleSheet, Text, type TextProps } from 'react-native';
+import { Platform, StyleSheet, Text, type TextProps, type TextStyle } from 'react-native';
 
 import { Fonts, ThemeColor } from '@/constants/theme';
+import { usePreferences } from '@/context/preferences-context';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
@@ -8,10 +9,26 @@ export type ThemedTextProps = TextProps & {
   themeColor?: ThemeColor;
 };
 
+/**
+ * Text that follows the theme colours and the "Text scaling" preference
+ * (on top of the phone's own font size setting).
+ */
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
+  const scale = usePreferences().preferences.textScale;
 
-  return <Text style={[{ color: theme[themeColor ?? 'text'] }, styles[type], style]} {...rest} />;
+  const flat: TextStyle =
+    StyleSheet.flatten([{ color: theme[themeColor ?? 'text'] }, styles[type], style]) ?? {};
+  const scaled =
+    scale === 1
+      ? flat
+      : {
+          ...flat,
+          fontSize: (flat.fontSize ?? 14) * scale,
+          lineHeight: flat.lineHeight ? flat.lineHeight * scale : undefined,
+        };
+
+  return <Text style={scaled} {...rest} />;
 }
 
 const styles = StyleSheet.create({

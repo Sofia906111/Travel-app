@@ -1,14 +1,19 @@
 /**
- * Learn more about light and dark modes:
- * https://docs.expo.dev/guides/color-schemes/
+ * Light / dark / high contrast. The user picks it in Preferences; "Same as phone" follows the
+ * system setting. Learn more: https://docs.expo.dev/guides/color-schemes/
  */
 
-import { Colors } from '@/constants/theme';
+import { Colors, type ThemeName } from '@/constants/theme';
+import { usePreferences } from '@/context/preferences-context';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
-export function useTheme() {
-  const scheme = useColorScheme();
-  const theme = scheme === 'dark' ? 'dark' : 'light';
+export function useThemeName(): ThemeName {
+  const system = useColorScheme();
+  const { preferences } = usePreferences();
+  if (preferences.theme === 'system') return system === 'dark' ? 'dark' : 'light';
+  return preferences.theme;
+}
 
-  return Colors[theme];
+export function useTheme() {
+  return Colors[useThemeName()];
 }

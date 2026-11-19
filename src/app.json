@@ -35,7 +35,13 @@
           "imageWidth": 76
         }
       ],
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "AccessWay uses your location to fill in the address of the place you are rating."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,
