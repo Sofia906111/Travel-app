@@ -72,6 +72,12 @@ function buildMapHtml(
   <body>
     <div id="map"></div>
     <script>
+      function sendToApp(payload) {
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify(payload));
+        }
+      }
+
       var map = L.map('map', { zoomControl: true }).setView(
         [${center.latitude}, ${center.longitude}],
         ${zoom}
@@ -82,14 +88,114 @@ function buildMapHtml(
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      var markers = ${markersJson};
-      markers.forEach(function (m) {
+      var skipNextClick = false;
+      var droppedPin = null;
+
+      function addPin(m) {
         var marker = L.marker([m.latitude, m.longitude]).addTo(map);
         if (m.title) {
           marker.bindPopup(m.title);
         }
+        marker.on('click', function () {
+          sendToApp({ type: 'markerClick', id: m.id });
+        });
+        return marker;
+      }
+
+      var markers = ${markersJson};
+      markers.forEach(addPin);
+
+      map.on('click', function (e) {
+        if (skipNextClick) {
+          skipNextClick = false;
+          return;
+        }
+        sendToApp({
+          type: 'mapClick',
+          latitude: e.latlng.lat,
+          longitude: e.latlng.lng,
+        });
       });
 
+      map.on('dblclick', function (e) {
+        sendToApp({
+          type: 'mapDblClick',
+          latitude: e.latlng.lat,
+          longitude: e.latlng.lng,
+        });
+      });
+
+      var holdTimer = null;
+      var holdStartPoint = null;
+      var HOLD_MS = 500;
+      var HOLD_MOVE_PX = 12;
+
+      function clearHoldTimer() {
+        if (holdTimer) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+        holdStartPoint = null;
+      }
+
+      function startHold(latlng, point) {
+        clearHoldTimer();
+        holdStartPoint = point;
+        holdTimer = setTimeout(function () {
+          holdTimer = null;
+          skipNextClick = true;
+          var pin = {
+            id: 'pin-' + Date.now(),
+            latitude: latlng.lat,
+            longitude: latlng.lng,
+            title: 'Dropped pin',
+          };
+          if (droppedPin) {
+            map.removeLayer(droppedPin);
+          }
+          droppedPin = addPin(pin);
+          sendToApp({
+            type: 'mapHold',
+            id: pin.id,
+            latitude: pin.latitude,
+            longitude: pin.longitude,
+          });
+        }, HOLD_MS);
+      }
+
+      map.on('mousedown', function (e) {
+        startHold(e.latlng, e.containerPoint);
+      });
+      map.on('mousemove', function (e) {
+        if (holdStartPoint && e.containerPoint.distanceTo(holdStartPoint) > HOLD_MOVE_PX) {
+          clearHoldTimer();
+        }
+      });
+      map.on('mouseup', clearHoldTimer);
+      map.on('contextmenu', function (e) {
+        L.DomEvent.preventDefault(e);
+      });
+
+      var mapEl = map.getContainer();
+      mapEl.addEventListener('touchstart', function (ev) {
+        if (ev.touches.length !== 1) {
+          clearHoldTimer();
+          return;
+        }
+        var latlng = map.mouseEventToLatLng(ev.touches[0]);
+        startHold(latlng, map.latLngToContainerPoint(latlng));
+      }, { passive: true });
+      mapEl.addEventListener('touchmove', function (ev) {
+        if (!holdStartPoint || !ev.touches[0]) return;
+        var point = map.mouseEventToContainerPoint(ev.touches[0]);
+        if (point.distanceTo(holdStartPoint) > HOLD_MOVE_PX) {
+          clearHoldTimer();
+        }
+      }, { passive: true });
+      mapEl.addEventListener('touchend', clearHoldTimer);
+      mapEl.addEventListener('touchcancel', clearHoldTimer);
+
+      sendToApp({ type: 'mapReady' });
       setTimeout(function () { map.invalidateSize(); }, 100);
       window.addEventListener('resize', function () { map.invalidateSize(); });
     </script>
@@ -111,7 +217,7 @@ export default function MapContainer({
     <View style={styles.map}>
       <WebView
         originWhitelist={['*']}
-        source={{ html }}
+        source={{ html, baseUrl: 'https://localhost' }}
         style={styles.webview}
         containerStyle={styles.webview}
         javaScriptEnabled
@@ -120,6 +226,16 @@ export default function MapContainer({
         mixedContentMode="always"
         scrollEnabled={false}
         scalesPageToFit={false}
+        onLoadEnd={() => {
+          console.log('Map WebView loaded');
+        }}
+        onMessage={(event) => {
+          try {
+            console.log('Map event', JSON.parse(event.nativeEvent.data));
+          } catch {
+            console.log('Map event', event.nativeEvent.data);
+          }
+        }}
       />
     </View>
   );

@@ -10,9 +10,8 @@ export default function AppTabs() {
   // `Material Symbol name: https://fonts.google.com/icons
   const paths = [
     { name: 'index', label: 'Map', icon: 'map' as const },
-    { name: 'explore', label: 'Explore', icon: 'explore' as const },
-    { name: 'preferences', label: 'Preferences', icon: 'settings' as const },
     { name: 'contribute', label: 'Contribute', icon: 'add_circle' as const },
+    { name: 'preferences', label: 'Settings', icon: 'settings' as const },
   ];
 
   return (
