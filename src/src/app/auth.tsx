@@ -1,12 +1,13 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Platform, ScrollView, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
 
 import { LabeledTextInput } from '@/components/labeled-text-input';
 import { RoundedButton } from '@/components/rounded-button';
 import { ThemedView } from '@/components/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { usePreferences } from '@/context/preferences-context';
 import { useTheme } from '@/hooks/use-theme';
 import { login, register } from '@/lib/user';
 
@@ -17,20 +18,20 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback;
-}
-
 function validateAuthForm(
   email: string,
   password: string,
   confirmPassword: string,
+  name: string,
+  surname: string,
   isLoginMode: boolean,
 ) {
   const errors = {
     email: '',
     password: '',
     confirmPassword: '',
+    name: '',
+    surname: '',
   };
 
   if (!email) {
@@ -43,13 +44,21 @@ function validateAuthForm(
     errors.password = 'Password is required';
   }
 
-  if (!isLoginMode && confirmPassword !== password) {
-    errors.confirmPassword = 'Passwords do not match';
+  if (!isLoginMode) {
+    if (!name.trim()) {
+      errors.name = 'Name is required';
+    }
+    if (!surname.trim()) {
+      errors.surname = 'Surname is required';
+    }
+    if (confirmPassword !== password) {
+      errors.confirmPassword = 'Passwords do not match';
+    }
   }
 
   return {
     errors,
-    isValid: !errors.email && !errors.password && !errors.confirmPassword,
+    isValid: !errors.email && !errors.password && !errors.confirmPassword && !errors.name && !errors.surname,
   };
 }
 
@@ -60,13 +69,18 @@ export default function AuthScreen() {
     bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
   };
   const theme = useTheme();
+  const { update } = usePreferences();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [name, setName] = useState('');
+  const [surname, setSurname] = useState('');
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
+  const [nameError, setNameError] = useState('');
+  const [surnameError, setSurnameError] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
   const [isLoginMode, setIsLoginMode] = useState(true);
 
@@ -87,14 +101,18 @@ export default function AuthScreen() {
     email: string;
     password: string;
     confirmPassword: string;
+    name: string;
+    surname: string;
   }) {
     setEmailError(errors.email);
     setPasswordError(errors.password);
     setConfirmPasswordError(errors.confirmPassword);
+    setNameError(errors.name);
+    setSurnameError(errors.surname);
   }
 
   function clearMessages() {
-    applyErrors({ email: '', password: '', confirmPassword: '' });
+    applyErrors({ email: '', password: '', confirmPassword: '', name: '', surname: '' });
     setInfoMessage('');
   }
 
@@ -103,20 +121,28 @@ export default function AuthScreen() {
       const result = await login(email, password);
       if (result.session) {
         router.replace('/preferences');
+        return;
       }
+      setPasswordError('Sign in did not return a session. Confirm your email, then try again.');
     } catch (error) {
-      setPasswordError(errorMessage(error, 'Sign in failed'));
+      console.log(error);
+      setPasswordError('Sign in failed');
     }
   }
 
   async function submitRegister() {
     try {
-      const result = await register(email, password);
-      if (!result.session) {
-        setInfoMessage(CONFIRM_EMAIL_MESSAGE);
+      const result = await register(email, password, name, surname);
+      update({ name: name.trim(), surname: surname.trim() });
+      if (result.session) {
+        router.replace('/preferences');
+        return;
       }
+      setInfoMessage(CONFIRM_EMAIL_MESSAGE);
+      setIsLoginMode(true);
     } catch (error) {
-      setConfirmPasswordError(errorMessage(error, 'Register failed'));
+      console.log(error);
+      setConfirmPasswordError('Register failed');
     }
   }
 
@@ -126,6 +152,8 @@ export default function AuthScreen() {
       email,
       password,
       confirmPassword,
+      name,
+      surname,
       isLoginMode,
     );
     applyErrors(errors);
@@ -146,6 +174,34 @@ export default function AuthScreen() {
         contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
         <ThemedView style={styles.container}>
           <Text style={styles.title}>{isLoginMode ? 'Sign in' : 'Register'}</Text>
+          <LabeledTextInput
+            label="Name"
+            placeholder="Your name"
+            autoCapitalize="words"
+            autoComplete="given-name"
+            textContentType="givenName"
+            hidden={isLoginMode}
+            value={name}
+            onChangeText={(text) => {
+              setName(text);
+              setNameError('');
+            }}
+            error={nameError}
+          />
+          <LabeledTextInput
+            label="Surname"
+            placeholder="Your surname"
+            autoCapitalize="words"
+            autoComplete="family-name"
+            textContentType="familyName"
+            hidden={isLoginMode}
+            value={surname}
+            onChangeText={(text) => {
+              setSurname(text);
+              setSurnameError('');
+            }}
+            error={surnameError}
+          />
           <LabeledTextInput
             label="Email"
             placeholder="Email"

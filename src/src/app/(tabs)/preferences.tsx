@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,8 +9,8 @@ import {
   RadioGroup,
   SectionTitle,
   SettingSwitch,
-  TextField,
 } from '@/components/form-controls';
+import { LabeledTextInput } from '@/components/labeled-text-input';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { TEXT_SCALE_OPTIONS, THEME_OPTIONS, usePreferences } from '@/context/preferences-context';
@@ -18,17 +19,37 @@ import { useTheme } from '@/hooks/use-theme';
 import { logout } from '@/lib/user';
 import { useUser } from '@/lib/user-context';
 
-/**
- * Preferences (Settings) tab. Every change is saved immediately on the phone (AsyncStorage, see
- * `context/preferences-context.tsx`) and applied to the whole app at once.
- * The Account section uses Supabase Auth (`lib/user.ts`).
- */
 export default function PreferencesScreen() {
   const { preferences: p, update } = usePreferences();
-  const { user, loading } = useUser();
+  const { user, profile, loading, updateProfile } = useUser();
   const announce = useAnnouncer();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
+
+  const [name, setName] = useState('');
+  const [surname, setSurname] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileMessage, setProfileMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setName(profile?.name ?? '');
+    setSurname(profile?.surname ?? '');
+  }, [profile]);
+
+  async function onSaveProfile() {
+    setSavingProfile(true);
+    setProfileMessage(null);
+    try {
+      await updateProfile({ name, surname });
+      setProfileMessage('Profile saved.');
+      announce('Profile saved');
+    } catch (error) {
+      console.log('profile update failed', error);
+      setProfileMessage('Could not save profile.');
+    } finally {
+      setSavingProfile(false);
+    }
+  }
 
   return (
     <ScrollView
@@ -47,7 +68,7 @@ export default function PreferencesScreen() {
         </ThemedText>
 
         <SectionTitle>Account</SectionTitle>
-        <Card>
+        <Card style={{ backgroundColor: theme.background }}>
           <ThemedText>{loading ? 'Loading account…' : user ? user.email : 'Not signed in'}</ThemedText>
           {!user ? (
             <Button title="Sign in" onPress={() => router.push('/auth')} />
@@ -65,32 +86,44 @@ export default function PreferencesScreen() {
         {user ? (
           <>
             <SectionTitle>Profile</SectionTitle>
-            <Card>
-              <TextField
+            <Card style={{ backgroundColor: theme.background }}>
+              <LabeledTextInput
                 label="Name"
-                value={p.name}
-                onChangeText={(name) => update({ name })}
+                placeholder="Your name"
                 autoCapitalize="words"
                 autoComplete="given-name"
-                placeholder="Your name"
+                textContentType="givenName"
+                value={name}
+                onChangeText={setName}
               />
-              <TextField
+              <LabeledTextInput
                 label="Surname"
-                value={p.surname}
-                onChangeText={(surname) => update({ surname })}
+                placeholder="Your surname"
                 autoCapitalize="words"
                 autoComplete="family-name"
-                placeholder="Your surname"
+                textContentType="familyName"
+                value={surname}
+                onChangeText={setSurname}
               />
+              <Button
+                title={savingProfile ? 'Saving…' : 'Save profile'}
+                loading={savingProfile}
+                onPress={onSaveProfile}
+              />
+              {profileMessage ? (
+                <ThemedText type="small" themeColor="textSecondary">
+                  {profileMessage}
+                </ThemedText>
+              ) : null}
               <ThemedText type="small" themeColor="textSecondary">
-                Shown as the author of your contributions. Leave empty to appear as &quot;Anonymous&quot;.
+                Shown as the author of your contributions.
               </ThemedText>
             </Card>
           </>
         ) : null}
 
         <SectionTitle>Map preferences</SectionTitle>
-        <Card>
+        <Card style={{ backgroundColor: theme.background }}>
           <SettingSwitch
             title="Show wheelchair-accessible places"
             subtitle="Highlights places with a wheelchair badge on the map."
@@ -101,7 +134,7 @@ export default function PreferencesScreen() {
 
         <SectionTitle>Accessibility</SectionTitle>
         <ThemedText type="smallBold">Theme</ThemedText>
-        <Card>
+        <Card style={{ backgroundColor: theme.background }}>
           <RadioGroup
             label="Theme"
             options={THEME_OPTIONS}
@@ -114,7 +147,7 @@ export default function PreferencesScreen() {
         </Card>
 
         <ThemedText type="smallBold">Text size</ThemedText>
-        <Card>
+        <Card style={{ backgroundColor: theme.background }}>
           <RadioGroup
             label="Text size"
             options={TEXT_SCALE_OPTIONS}

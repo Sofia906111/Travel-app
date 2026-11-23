@@ -1,13 +1,22 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
 import { Button } from '@/components/form-controls';
+import { RatingDot } from '@/components/rating-legend';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
+import { cachePlace } from '@/lib/place-cache';
+import { getModeForPlaceRatings, getRatingsForPlace } from '@/lib/rating';
+import {
+  FEATURES,
+  emptyRatings,
+  ratingLabel,
+  type Ratings,
+} from '@/types/contribution';
 
 type MapMarker = {
   id: string;
@@ -45,6 +54,8 @@ type PlacePreview = {
   address: string | null;
   featureClass: string | null;
   featureType: string | null;
+  osmId: number | null;
+  osmType: string | null;
   loading: boolean;
 };
 
@@ -95,7 +106,6 @@ const PLACE_FEATURE_CLASSES = new Set([
   'aerialway',
 ]);
 
-/** Contribute button: same as places, but amenities are excluded. */
 const CONTRIBUTABLE_FEATURE_CLASSES = new Set(
   [...PLACE_FEATURE_CLASSES].filter((c) => c !== 'amenity'),
 );
@@ -122,7 +132,6 @@ function placeName(
 ): string | null {
   const fromAddress = placeNameFromAddress(address);
   if (fromAddress) return fromAddress;
-  // Only use Nominatim's name when the feature itself is a place, not a road.
   if (label && featureClass && PLACE_FEATURE_CLASSES.has(featureClass)) {
     return label;
   }
@@ -363,12 +372,41 @@ export default function MapContainer({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [place, setPlace] = useState<PlacePreview | null>(null);
+  const [placeRatings, setPlaceRatings] = useState<Ratings | null>(null);
+  const [ratingsLoading, setRatingsLoading] = useState(false);
 
   const canContribute =
     !!place &&
     !place.loading &&
     place.featureClass != null &&
     CONTRIBUTABLE_FEATURE_CLASSES.has(place.featureClass);
+
+  useEffect(() => {
+    if (!place || place.loading || place.osmId == null) {
+      setPlaceRatings(null);
+      setRatingsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setRatingsLoading(true);
+    getRatingsForPlace(place.osmId)
+      .then((rows) => {
+        if (cancelled) return;
+        setPlaceRatings(getModeForPlaceRatings(rows ?? []));
+      })
+      .catch((err) => {
+        console.warn('cant load ratign', err);
+        if (!cancelled) setPlaceRatings(emptyRatings());
+      })
+      .finally(() => {
+        if (!cancelled) setRatingsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [place?.id, place?.loading, place?.osmId]);
 
   const onContribute = useCallback(() => {
     if (!place || !canContribute) return;
@@ -384,6 +422,8 @@ export default function MapContainer({
         address,
         featureClass: place.featureClass ?? '',
         featureType: place.featureType ?? '',
+        osmId: place.osmId != null ? String(place.osmId) : '',
+        osmType: place.osmType ?? '',
         latitude: String(place.latitude),
         longitude: String(place.longitude),
       },
@@ -421,16 +461,41 @@ export default function MapContainer({
           address: null,
           featureClass: null,
           featureType: null,
+          osmId: null,
+          osmType: null,
           loading: true,
         });
         return;
       }
 
       if (event.type === 'mapHoldGeocode' && event.id != null) {
-        const hasOsmId = event.osmId != null && event.osmId !== '';
+        const osmIdNum =
+          event.osmId != null && event.osmId !== '' ? Number(event.osmId) : NaN;
+        const hasOsmId = Number.isFinite(osmIdNum);
         const name = hasOsmId
           ? placeName(event.label, event.address, event.featureClass)
           : null;
+        const latitude = event.latitude ?? 0;
+        const longitude = event.longitude ?? 0;
+        const address = hasOsmId
+          ? formatPlaceAddress(event.address) ?? event.displayName ?? null
+          : null;
+        const osmType =
+          typeof event.osmType === 'string' && event.osmType.trim()
+            ? event.osmType.trim()
+            : null;
+        if (hasOsmId) {
+          void cachePlace({
+            osmId: osmIdNum,
+            osmType,
+            label: name ?? address ?? `OSM ${osmIdNum}`,
+            address: address ?? undefined,
+            lat: latitude,
+            lng: longitude,
+            featureClass: event.featureClass ?? null,
+            featureType: event.featureType ?? null,
+          });
+        }
         setPlace((current) => {
           if (current && current.id !== event.id) return current;
           return {
@@ -438,11 +503,11 @@ export default function MapContainer({
             latitude: event.latitude ?? current?.latitude ?? 0,
             longitude: event.longitude ?? current?.longitude ?? 0,
             name: name ?? 'Dropped pin',
-            address: hasOsmId
-              ? formatPlaceAddress(event.address) ?? event.displayName ?? null
-              : null,
+            address,
             featureClass: event.featureClass ?? null,
             featureType: event.featureType ?? null,
+            osmId: hasOsmId ? osmIdNum : null,
+            osmType,
             loading: false,
           };
         });
@@ -460,6 +525,8 @@ export default function MapContainer({
             address: null,
             featureClass: null,
             featureType: null,
+            osmId: null,
+            osmType: null,
             loading: false,
           };
         });
@@ -542,6 +609,32 @@ export default function MapContainer({
                 <ThemedText type="smallBold">X</ThemedText>
               </Pressable>
             </View>
+
+            {!place.loading && place.osmId != null ? (
+              <View style={styles.ratingsList}>
+                {ratingsLoading || !placeRatings ? (
+                  <View style={styles.loadingRow}>
+                    <ActivityIndicator color={theme.primary} size="small" />
+                    <ThemedText type="small" themeColor="textSecondary">
+                      Loading ratings…
+                    </ThemedText>
+                  </View>
+                ) : (
+                  FEATURES.map((feature) => {
+                    const rating = placeRatings[feature.key];
+                    return (
+                      <View key={feature.key} style={styles.ratingRow}>
+                        <RatingDot rating={rating} />
+                        <ThemedText type="small" style={styles.ratingLabel} numberOfLines={2}>
+                          {feature.label}: {ratingLabel(rating)}
+                        </ThemedText>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+            ) : null}
+
             {canContribute ? (
               <View style={styles.contributeRow}>
                 <Button
@@ -601,6 +694,18 @@ const styles = StyleSheet.create({
   },
   contributeRow: {
     marginTop: Spacing.three,
+  },
+  ratingsList: {
+    marginTop: Spacing.three,
+    gap: Spacing.two,
+  },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  ratingLabel: {
+    flex: 1,
   },
   loadingRow: {
     flexDirection: 'row',

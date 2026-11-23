@@ -1,4 +1,3 @@
-/** The five accessibility features rated in the Contribute screen (from the Figma prototype). */
 export const FEATURES = [
   { key: 'wheelchairEntrance', label: 'Wheelchair accessible entrance' },
   { key: 'elevators', label: 'Elevators' },
@@ -18,26 +17,15 @@ export type FeatureKey = (typeof FEATURES)[number]['key'];
 export type RatingKey = (typeof RATINGS)[number]['key'];
 export type Ratings = Record<FeatureKey, RatingKey>;
 
-/**
- * Local-first sync state. A contribution is always saved on the phone first and then sent to
- * the (mock) server. Without network it stays "pending" and is retried when the connection returns.
- */
-export type SyncState = 'pendingUpload' | 'synced' | 'pendingDelete';
-
 export type Contribution = {
   id: string;
   address: string;
+  osmId: number;
   latitude: number | null;
   longitude: number | null;
   ratings: Ratings;
-  comment: string;
-  authorName: string;
   createdAt: number;
   updatedAt: number;
-  syncState: SyncState;
-  /** Id given by the server after the first successful upload. */
-  remoteId: string | null;
-  lastSyncError: string | null;
 };
 
 export function emptyRatings(): Ratings {
@@ -48,6 +36,22 @@ export function ratingLabel(key: RatingKey): string {
   return RATINGS.find((r) => r.key === key)?.label ?? key;
 }
 
-export function newId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+function isFeatureKey(value: string): value is FeatureKey {
+  return FEATURES.some((f) => f.key === value);
+}
+
+function isRatingKey(value: string): value is RatingKey {
+  return RATINGS.some((r) => r.key === value);
+}
+
+export function ratingsFromRows(
+  rows: Array<{ feature: string; rating: string }>,
+): Ratings {
+  const result = emptyRatings();
+  for (const row of rows) {
+    if (isFeatureKey(row.feature) && isRatingKey(row.rating)) {
+      result[row.feature] = row.rating;
+    }
+  }
+  return result;
 }

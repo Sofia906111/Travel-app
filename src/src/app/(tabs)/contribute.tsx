@@ -17,17 +17,17 @@ import {
   ChipGroup,
   MessageBanner,
   SectionTitle,
-  TextField,
   type MessageKind,
   type UiMessage,
 } from '@/components/form-controls';
 import { RatingDot, RatingLegend, ratingColor } from '@/components/rating-legend';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useContributions, type SyncResult } from '@/context/contributions-context';
-import { displayName, usePreferences } from '@/context/preferences-context';
+import { useContributions } from '@/context/contributions-context';
 import { useAnnouncer } from '@/hooks/use-announcer';
 import { useTheme } from '@/hooks/use-theme';
+import { cachePlace } from '@/lib/place-cache';
+import { addRating } from '@/lib/rating';
 import { useUser } from '@/lib/user-context';
 import {
   emptyRatings,
@@ -40,15 +40,15 @@ import {
 
 type FormState = {
   editingId: string | null;
-  /** Combined string saved on the contribution. */
   address: string;
   placeName: string;
   placeAddress: string;
   placeKind: string;
+  osmId: number | null;
+  osmType: string | null;
   latitude: number | null;
   longitude: number | null;
   ratings: Ratings;
-  comment: string;
 };
 
 const emptyForm = (): FormState => ({
@@ -57,13 +57,13 @@ const emptyForm = (): FormState => ({
   placeName: '',
   placeAddress: '',
   placeKind: '',
+  osmId: null,
+  osmType: null,
   latitude: null,
   longitude: null,
   ratings: emptyRatings(),
-  comment: '',
 });
 
-/** Turns OSM type/class like `guest_house` / `shop` into a short label. */
 function formatPlaceKind(featureType?: string, featureClass?: string): string {
   const raw = (featureType || featureClass || '').trim();
   if (!raw) return '';
@@ -71,23 +71,20 @@ function formatPlaceKind(featureType?: string, featureClass?: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-/**
- * Contribute tab (core task): rate the accessibility of a place.
- * Places are selected on the map (hold → Contribute); address is not typed here.
- */
 export default function ContributeScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const announce = useAnnouncer();
-  const { preferences } = usePreferences();
   const { user, loading: userLoading } = useUser();
-  const { contributions, loaded, isOnline, isSyncing, pendingCount, save, remove, sync } = useContributions();
+  const { contributions, loaded, refresh, remove } = useContributions();
   const params = useLocalSearchParams<{
     address?: string;
     name?: string;
     addressLine?: string;
     featureClass?: string;
     featureType?: string;
+    osmId?: string;
+    osmType?: string;
     latitude?: string;
     longitude?: string;
   }>();
@@ -102,7 +99,6 @@ export default function ContributeScreen() {
     announce(text);
   };
 
-  // Prefill from map "Contribute" (place hold → place card).
   useEffect(() => {
     const address = typeof params.address === 'string' ? params.address.trim() : '';
     if (!address) return;
@@ -116,18 +112,21 @@ export default function ContributeScreen() {
     );
     const latitude = params.latitude != null ? Number(params.latitude) : NaN;
     const longitude = params.longitude != null ? Number(params.longitude) : NaN;
+    const osmId = params.osmId != null ? Number(params.osmId) : NaN;
+    const osmType =
+      typeof params.osmType === 'string' && params.osmType.trim() ? params.osmType.trim() : null;
     setForm({
       editingId: null,
       address,
       placeName,
       placeAddress,
       placeKind,
+      osmId: Number.isFinite(osmId) ? osmId : null,
+      osmType,
       latitude: Number.isFinite(latitude) ? latitude : null,
       longitude: Number.isFinite(longitude) ? longitude : null,
       ratings: emptyRatings(),
-      comment: '',
     });
-    // Only react to incoming map params, not every form edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     params.address,
@@ -135,43 +134,48 @@ export default function ContributeScreen() {
     params.addressLine,
     params.featureClass,
     params.featureType,
+    params.osmId,
+    params.osmType,
     params.latitude,
     params.longitude,
   ]);
-
-  const resultMessage = (r: SyncResult, done: string, offline: string): [string, MessageKind] => {
-    if (r.kind === 'allSynced') return [done, 'success'];
-    if (r.kind === 'offline') return [offline, 'info'];
-    return [`Saved on your phone, but the upload failed (${r.reason}). Tap "Retry sync".`, 'error'];
-  };
 
   const onSubmit = async () => {
     if (!form.address.trim()) {
       show('Select the place from map and press Contribute.', 'error');
       return;
     }
+    if (form.osmId == null) {
+      show('This place has no OSM id. Pick another place on the map.', 'error');
+      return;
+    }
     if (saving) return;
     setSaving(true);
     const wasEditing = form.editingId !== null;
-    const promise = save({
-      id: form.editingId,
-      address: form.address,
-      latitude: form.latitude,
-      longitude: form.longitude,
-      ratings: form.ratings,
-      comment: form.comment,
-      authorName: displayName(preferences) || user?.email || 'Anonymous',
-    });
-    setForm(emptyForm());
-    const result = await promise;
-    setSaving(false);
-    show(
-      ...resultMessage(
-        result,
-        wasEditing ? 'Changes saved and uploaded.' : 'Contribution saved and uploaded. Thank you!',
-        'You are offline. Saved on your phone; it will upload automatically when you reconnect.',
-      ),
-    );
+    const snapshot = form;
+
+    try {
+      await cachePlace({
+        osmId: snapshot.osmId!,
+        osmType: snapshot.osmType,
+        label: snapshot.placeName || snapshot.address,
+        address: snapshot.placeAddress || snapshot.address,
+        lat: snapshot.latitude,
+        lng: snapshot.longitude,
+      });
+      await addRating(snapshot.osmId!, snapshot.ratings);
+      await refresh();
+      setForm(emptyForm());
+      show(
+        wasEditing ? 'Changes saved.' : 'Contribution saved. Thank you!',
+        'success',
+      );
+    } catch (error) {
+      console.log('addRating failed', error);
+      show('Could not save rating to the server.', 'error');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const onCancel = () => {
@@ -186,24 +190,24 @@ export default function ContributeScreen() {
       placeName: item.address,
       placeAddress: '',
       placeKind: '',
+      osmId: item.osmId,
+      osmType: null,
       latitude: item.latitude,
       longitude: item.longitude,
       ratings: { ...emptyRatings(), ...item.ratings },
-      comment: item.comment,
     });
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
 
   const doDelete = async (item: Contribution) => {
     if (form.editingId === item.id) setForm(emptyForm());
-    const r = await remove(item.id);
-    show(
-      ...resultMessage(
-        r,
-        'Contribution deleted.',
-        'Deleted on your phone. The server will be updated when you reconnect.',
-      ),
-    );
+    try {
+      await remove(item.osmId);
+      show('Contribution deleted.', 'success');
+    } catch (error) {
+      console.log('delete contribution failed', error);
+      show('Could not delete contribution.', 'error');
+    }
   };
 
   const onDelete = (item: Contribution) => {
@@ -216,13 +220,6 @@ export default function ContributeScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => doDelete(item) },
     ]);
-  };
-
-  const onRetry = async () => {
-    const r = await sync();
-    if (r.kind === 'allSynced') show('Everything is up to date.', 'success');
-    else if (r.kind === 'offline') show('Still offline. We will retry automatically.', 'info');
-    else show(`Sync failed for ${r.failed} item(s): ${r.reason}`, 'error');
   };
 
   const isEditing = form.editingId !== null;
@@ -247,14 +244,6 @@ export default function ContributeScreen() {
             Rate how accessible a place is to help other travellers.
           </ThemedText>
 
-          {isOnline === false ? (
-            <MessageBanner
-              message={{
-                kind: 'info',
-                text: 'You are offline. New contributions are saved on your phone and uploaded later.',
-              }}
-            />
-          ) : null}
           {message ? <MessageBanner message={message} onDismiss={() => setMessage(null)} /> : null}
 
           <SectionTitle>{isEditing ? 'Edit place' : 'Add a place'}</SectionTitle>
@@ -311,16 +300,6 @@ export default function ContributeScreen() {
                 />
               ))}
 
-              <TextField
-                label="Comment (optional)"
-                value={form.comment}
-                onChangeText={(comment) => setForm((f) => ({ ...f, comment }))}
-                placeholder="For example: the lift is at the back entrance"
-                multiline
-                style={styles.comment}
-                textAlignVertical="top"
-              />
-
               <View style={styles.buttonRow}>
                 <View style={styles.flex}>
                   <Button
@@ -334,17 +313,7 @@ export default function ContributeScreen() {
             </Card>
           )}
 
-          <View style={styles.listHeader}>
-            <SectionTitle>{`My contributions (${contributions.length})`}</SectionTitle>
-            {pendingCount > 0 ? (
-              <View style={styles.pendingRow}>
-                <ThemedText type="small" themeColor="info" style={styles.flex}>
-                  {isSyncing ? 'Uploading…' : `${pendingCount} waiting to upload`}
-                </ThemedText>
-                <Button variant="secondary" title="Retry sync" onPress={onRetry} loading={isSyncing} />
-              </View>
-            ) : null}
-          </View>
+          <SectionTitle>{`My contributions (${contributions.length})`}</SectionTitle>
 
           {!loaded ? <ActivityIndicator color={theme.primary} /> : null}
           {loaded && contributions.length === 0 ? (
@@ -357,7 +326,6 @@ export default function ContributeScreen() {
             <ContributionCard
               key={item.id}
               item={item}
-              isSyncing={isSyncing}
               onEdit={() => onEdit(item)}
               onDelete={() => onDelete(item)}
             />
@@ -370,24 +338,15 @@ export default function ContributeScreen() {
 
 function ContributionCard({
   item,
-  isSyncing,
   onEdit,
   onDelete,
 }: {
   item: Contribution;
-  isSyncing: boolean;
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const theme = useTheme();
   const rated = FEATURES.filter((f) => item.ratings[f.key] && item.ratings[f.key] !== 'unknown');
   const missing = FEATURES.length - rated.length;
-
-  let status: { text: string; color: string };
-  if (item.syncState === 'synced') status = { text: 'Uploaded', color: theme.success };
-  else if (item.lastSyncError) status = { text: `Upload failed: ${item.lastSyncError}`, color: theme.danger };
-  else if (isSyncing) status = { text: '↑ Uploading…', color: theme.info };
-  else status = { text: '⏳ Saved on phone, waiting for network', color: theme.info };
 
   return (
     <Card>
@@ -397,7 +356,7 @@ function ContributionCard({
         </ThemedText>
       </View>
       <ThemedText type="small" themeColor="textSecondary">
-        by {item.authorName} · {new Date(item.updatedAt).toLocaleString()}
+        {new Date(item.updatedAt).toLocaleString()}
       </ThemedText>
 
       <View>
@@ -415,11 +374,6 @@ function ContributionCard({
           </ThemedText>
         ) : null}
       </View>
-      {item.comment ? <ThemedText type="small">“{item.comment}”</ThemedText> : null}
-
-      <ThemedText type="small" style={{ color: status.color }} accessibilityLabel={`Status: ${status.text}`}>
-        {status.text}
-      </ThemedText>
 
       <View style={styles.buttonRow}>
         <Button variant="secondary" title="Edit" onPress={onEdit} accessibilityHint={`Edit ${item.address}`} />
@@ -443,16 +397,9 @@ const styles = StyleSheet.create({
   placeSummary: {
     gap: 4,
   },
-  comment: { minHeight: 96 },
   buttonRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: Spacing.two,
-  },
-  listHeader: { gap: Spacing.two },
-  pendingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: Spacing.two,
   },
   cardHeader: {

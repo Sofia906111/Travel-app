@@ -14,7 +14,7 @@ SplashScreen.preventAutoHideAsync();
  * Root of the app. The providers make shared state available to every screen:
  *  - PreferencesProvider:   user preferences (saved on the phone)
  *  - UserProvider:          Supabase login session
- *  - ContributionsProvider: contributions + sync
+ *  - ContributionsProvider: contributions from Supabase
  */
 export default function RootLayout() {
   return (

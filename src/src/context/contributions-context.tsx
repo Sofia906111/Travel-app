@@ -1,219 +1,85 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
 import {
   createContext,
   useCallback,
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ReactNode,
 } from 'react';
 
-import { mockSupabase } from '@/services/mock-supabase';
-import { checkOnline, isOnline } from '@/services/network';
-import { newId, type Contribution, type Ratings } from '@/types/contribution';
-
-/**
- * Single source of truth for contributions ("repository").
- *
- * Data flow:  Contribute screen -> save() -> AsyncStorage (ALWAYS, on the phone)
- *                                         -> sync() -> mockSupabase (best effort)
- *
- * - Offline: the item stays "pendingUpload" and the user is told it is saved on the phone.
- * - When NetInfo reports the connection is back, sync() runs automatically.
- * - Server error: the error is stored on the item and the user can tap "Retry sync".
- */
-
-export type SyncResult =
-  | { kind: 'allSynced' }
-  | { kind: 'offline' }
-  | { kind: 'failed'; failed: number; reason: string };
-
-export type ContributionInput = {
-  id?: string | null;
-  address: string;
-  latitude: number | null;
-  longitude: number | null;
-  ratings: Ratings;
-  comment: string;
-  authorName: string;
-};
+import { deleteMyRatingsForPlace, getMyContributions } from '@/lib/rating';
+import { useUser } from '@/lib/user-context';
+import type { Contribution } from '@/types/contribution';
 
 type ContributionsContextValue = {
-  /** Visible contributions, newest first (items waiting to be deleted are hidden). */
   contributions: Contribution[];
   loaded: boolean;
-  isSyncing: boolean;
-  isOnline: boolean | null;
-  pendingCount: number;
-  save: (input: ContributionInput) => Promise<SyncResult>;
-  remove: (id: string) => Promise<SyncResult>;
-  sync: () => Promise<SyncResult>;
+  refresh: () => Promise<void>;
+  remove: (osmId: number) => Promise<void>;
 };
-
-const STORAGE_KEY = 'accessway.contributions.v1';
 
 const ContributionsContext = createContext<ContributionsContextValue | null>(null);
 
 export function ContributionsProvider({ children }: { children: ReactNode }) {
+  const { user } = useUser();
   const [items, setItems] = useState<Contribution[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [online, setOnline] = useState<boolean | null>(null);
 
-  // Refs give async code (sync loop) the latest values without stale closures.
-  const itemsRef = useRef<Contribution[]>([]);
-  const queueRef = useRef<Promise<unknown>>(Promise.resolve());
-
-  /** Updates the list in memory AND writes it to the phone's storage. */
-  const commit = useCallback((change: (prev: Contribution[]) => Contribution[]) => {
-    const next = change(itemsRef.current);
-    itemsRef.current = next;
-    setItems(next);
-    AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next)).catch((e) =>
-      console.warn('Could not save contributions', e),
-    );
-  }, []);
-
-  const runSync = useCallback(async (): Promise<SyncResult> => {
-    const pending = itemsRef.current.filter((i) => i.syncState !== 'synced');
-    if (pending.length === 0) return { kind: 'allSynced' };
-    if (!(await checkOnline())) return { kind: 'offline' };
-
-    setIsSyncing(true);
-    let failed = 0;
-    let reason = '';
-    try {
-      for (const item of pending) {
-        // Re-read: the user may have edited or deleted it while we were uploading others.
-        const current = itemsRef.current.find((i) => i.id === item.id);
-        if (!current || current.syncState === 'synced') continue;
-        try {
-          if (current.syncState === 'pendingUpload') {
-            const remoteId = await mockSupabase.upsert(current);
-            commit((prev) =>
-              prev.map((i) =>
-                i.id !== current.id
-                  ? i
-                  : i.updatedAt === current.updatedAt
-                    ? { ...i, remoteId, syncState: 'synced', lastSyncError: null }
-                    : { ...i, remoteId }, // edited during upload: keep it pending
-              ),
-            );
-          } else {
-            if (current.remoteId) await mockSupabase.remove(current.remoteId);
-            commit((prev) => prev.filter((i) => i.id !== current.id));
-          }
-        } catch (e) {
-          failed++;
-          reason = e instanceof Error ? e.message : 'Unknown error';
-          const msg = reason;
-          commit((prev) => prev.map((i) => (i.id === current.id ? { ...i, lastSyncError: msg } : i)));
-        }
-      }
-    } finally {
-      setIsSyncing(false);
+  const refresh = useCallback(async () => {
+    if (!user) {
+      setItems([]);
+      setLoaded(true);
+      return;
     }
-    return failed === 0 ? { kind: 'allSynced' } : { kind: 'failed', failed, reason };
-  }, [commit]);
+    const next = await getMyContributions(user.id);
+    setItems(next);
+    setLoaded(true);
+  }, [user]);
 
-  /** Runs one sync at a time (calls are queued), so the same item is never uploaded twice. */
-  const sync = useCallback((): Promise<SyncResult> => {
-    const run = queueRef.current.then(runSync, runSync);
-    queueRef.current = run.catch(() => undefined);
-    return run;
-  }, [runSync]);
-
-  // Load saved contributions when the app starts, then try to upload anything pending.
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((json) => {
-        const parsed: unknown = json ? JSON.parse(json) : [];
-        if (Array.isArray(parsed)) {
-          itemsRef.current = parsed as Contribution[];
-          setItems(itemsRef.current);
+    let cancelled = false;
+    setLoaded(false);
+    (async () => {
+      try {
+        if (!user) {
+          if (!cancelled) {
+            setItems([]);
+            setLoaded(true);
+          }
+          return;
         }
-      })
-      .catch((e) => console.warn('Could not read contributions', e))
-      .finally(() => {
-        setLoaded(true);
-        sync();
-      });
-  }, [sync]);
-
-  // Auto-retry: every time the phone goes from offline to online, push pending work.
-  useEffect(() => {
-    let wasOnline: boolean | null = null;
-    return NetInfo.addEventListener((state) => {
-      const now = isOnline(state);
-      setOnline(now);
-      if (now && wasOnline === false) sync();
-      wasOnline = now;
-    });
-  }, [sync]);
-
-  const save = useCallback(
-    (input: ContributionInput) => {
-      const now = Date.now();
-      const fields = {
-        address: input.address.trim(),
-        latitude: input.latitude,
-        longitude: input.longitude,
-        ratings: input.ratings,
-        comment: input.comment.trim(),
-        updatedAt: now,
-        syncState: 'pendingUpload' as const,
-        lastSyncError: null,
-      };
-      if (input.id) {
-        commit((prev) => prev.map((i) => (i.id === input.id ? { ...i, ...fields } : i)));
-      } else {
-        const created: Contribution = {
-          ...fields,
-          id: newId(),
-          authorName: input.authorName,
-          createdAt: now,
-          remoteId: null,
-        };
-        commit((prev) => [created, ...prev]);
+        const next = await getMyContributions(user.id);
+        if (!cancelled) setItems(next);
+      } catch (error) {
+        console.log('load contributions failed', error);
+        if (!cancelled) setItems([]);
+      } finally {
+        if (!cancelled) setLoaded(true);
       }
-      return sync();
-    },
-    [commit, sync],
-  );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   const remove = useCallback(
-    async (id: string): Promise<SyncResult> => {
-      const existing = itemsRef.current.find((i) => i.id === id);
-      if (!existing) return { kind: 'allSynced' };
-      if (!existing.remoteId) {
-        // Never reached the server: nothing to tell it.
-        commit((prev) => prev.filter((i) => i.id !== id));
-        return { kind: 'allSynced' };
-      }
-      commit((prev) =>
-        prev.map((i) => (i.id === id ? { ...i, syncState: 'pendingDelete', lastSyncError: null } : i)),
-      );
-      return sync();
+    async (osmId: number) => {
+      await deleteMyRatingsForPlace(osmId);
+      setItems((prev) => prev.filter((item) => item.osmId !== osmId));
     },
-    [commit, sync],
+    [],
   );
 
-  const value = useMemo<ContributionsContextValue>(() => {
-    const visible = items.filter((i) => i.syncState !== 'pendingDelete');
-    return {
-      contributions: visible,
+  const value = useMemo<ContributionsContextValue>(
+    () => ({
+      contributions: items,
       loaded,
-      isSyncing,
-      isOnline: online,
-      pendingCount: items.filter((i) => i.syncState !== 'synced').length,
-      save,
+      refresh,
       remove,
-      sync,
-    };
-  }, [items, loaded, isSyncing, online, save, remove, sync]);
+    }),
+    [items, loaded, refresh, remove],
+  );
 
   return <ContributionsContext.Provider value={value}>{children}</ContributionsContext.Provider>;
 }
