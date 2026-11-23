@@ -1,16 +1,22 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
 
 import { Button } from '@/components/form-controls';
-import { RatingDot } from '@/components/rating-legend';
+import { RatingDot, ratingColor } from '@/components/rating-legend';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing } from '@/constants/theme';
+import { useContributions } from '@/context/contributions-context';
 import { useTheme } from '@/hooks/use-theme';
-import { cachePlace } from '@/lib/place-cache';
-import { getModeForPlaceRatings, getRatingsForPlace } from '@/lib/rating';
+import {
+  getContributedPlaces,
+  getModeForPlaceRatings,
+  getRatingsByPlaceOsmIds,
+  getRatingsForPlace,
+  overallAccessibilityRating,
+} from '@/lib/rating';
 import {
   FEATURES,
   emptyRatings,
@@ -138,6 +144,63 @@ function placeName(
   return null;
 }
 
+async function lookupNominatimByOsmId(osmId: number): Promise<{
+  latitude: number;
+  longitude: number;
+  label: string | null;
+  featureClass: string | null;
+  featureType: string | null;
+  displayName: string | null;
+  address: NominatimAddress | null;
+  osmType: string | null;
+  osmId: number;
+} | null> {
+  const url = new URL('https://nominatim.openstreetmap.org/lookup');
+  url.searchParams.set('osm_ids', `N${osmId},W${osmId},R${osmId}`);
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('addressdetails', '1');
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Accept: 'application/json',
+      'Accept-Language': 'en',
+      'User-Agent': 'AccessWayTravelApp/1.0 (local-dev)',
+    },
+  });
+  if (!response.ok) return null;
+
+  const results = (await response.json()) as Array<{
+    osm_id?: number;
+    osm_type?: string;
+    lat?: string;
+    lon?: string;
+    name?: string;
+    display_name?: string;
+    class?: string;
+    type?: string;
+    address?: NominatimAddress;
+  }>;
+  const match =
+    results.find((item) => String(item.osm_id) === String(osmId)) ?? results[0];
+  if (!match) return null;
+
+  const latitude = match.lat != null ? Number(match.lat) : NaN;
+  const longitude = match.lon != null ? Number(match.lon) : NaN;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+  return {
+    osmId,
+    osmType: match.osm_type ?? null,
+    latitude,
+    longitude,
+    label: match.name?.trim() || null,
+    featureClass: match.class ?? null,
+    featureType: match.type ?? null,
+    displayName: match.display_name?.trim() || null,
+    address: match.address ?? null,
+  };
+}
+
 function buildMapHtml(
   center: { latitude: number; longitude: number },
   zoom: number,
@@ -217,6 +280,49 @@ function buildMapHtml(
       var markers = ${markersJson};
       markers.forEach(addPin);
 
+      var contributionLayer = L.layerGroup().addTo(map);
+      window.clearDroppedPin = function () {
+        if (droppedPin) {
+          map.removeLayer(droppedPin);
+          droppedPin = null;
+        }
+      };
+      window.showDroppedPin = function (lat, lng, title) {
+        window.clearDroppedPin();
+        droppedPin = addPin({
+          id: 'selection',
+          latitude: lat,
+          longitude: lng,
+          title: title || 'Selected place',
+        });
+      };
+      window.setContributionMarkers = function (items) {
+        contributionLayer.clearLayers();
+        if (!items || !items.length) return;
+        items.forEach(function (m) {
+          var fill = m.fillColor || '#9CA3AF';
+          var marker = L.circleMarker([m.latitude, m.longitude], {
+            radius: 9,
+            color: fill,
+            weight: 2,
+            fillColor: fill,
+            fillOpacity: 0.9,
+          }).addTo(contributionLayer);
+          marker.on('click', function (e) {
+            L.DomEvent.stopPropagation(e);
+            skipNextClick = true;
+            sendToApp({
+              type: 'contributionMarkerClick',
+              id: m.id,
+              osmId: m.osmId,
+              latitude: m.latitude,
+              longitude: m.longitude,
+              title: m.title || null,
+            });
+          });
+        });
+      };
+
       map.on('click', function (e) {
         if (skipNextClick) {
           skipNextClick = false;
@@ -269,12 +375,25 @@ function buildMapHtml(
         })
           .then(function (res) { return res.json(); })
           .then(function (data) {
-            console.log('[mapHold] nominatim', { lat: lat, lng: lng, data: data });
+            var placeLat = data && data.lat != null ? Number(data.lat) : NaN;
+            var placeLng = data && data.lon != null ? Number(data.lon) : NaN;
+            var hasPlacePoint = Number.isFinite(placeLat) && Number.isFinite(placeLng);
+            console.log('[mapHold] nominatim', {
+              dropLat: lat,
+              dropLng: lng,
+              placeLat: hasPlacePoint ? placeLat : null,
+              placeLng: hasPlacePoint ? placeLng : null,
+              data: data,
+            });
+            if (hasPlacePoint && droppedPin) {
+              droppedPin.setLatLng([placeLat, placeLng]);
+            }
             sendToApp({
               type: 'mapHoldGeocode',
               id: pinId,
-              latitude: lat,
-              longitude: lng,
+              // Prefer the OSM place centroid from Nominatim, not the finger drop point.
+              latitude: hasPlacePoint ? placeLat : lat,
+              longitude: hasPlacePoint ? placeLng : lng,
               label: data && data.name ? data.name : null,
               featureClass: data && data.class ? data.class : null,
               featureType: data && data.type ? data.type : null,
@@ -371,9 +490,153 @@ export default function MapContainer({
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { contributions } = useContributions();
+  const webRef = useRef<WebView>(null);
+  const mapReadyRef = useRef(false);
   const [place, setPlace] = useState<PlacePreview | null>(null);
   const [placeRatings, setPlaceRatings] = useState<Ratings | null>(null);
   const [ratingsLoading, setRatingsLoading] = useState(false);
+
+  const contributionRevision = useMemo(
+    () => contributions.map((item) => `${item.osmId}:${item.updatedAt}`).join('|'),
+    [contributions],
+  );
+
+  const setContributionMarkers = useCallback(
+    (
+      items: Array<{
+        id: string;
+        osmId: number;
+        latitude: number;
+        longitude: number;
+        title: string;
+        fillColor: string;
+      }>,
+    ) => {
+      const payload = JSON.stringify(items);
+      webRef.current?.injectJavaScript(
+        `window.setContributionMarkers && window.setContributionMarkers(${payload}); true;`,
+      );
+    },
+    [],
+  );
+
+  const clearDroppedPin = useCallback(() => {
+    webRef.current?.injectJavaScript(
+      'window.clearDroppedPin && window.clearDroppedPin(); true;',
+    );
+  }, []);
+
+  const showDroppedPin = useCallback((latitude: number, longitude: number, title?: string) => {
+    const safeTitle = JSON.stringify(title ?? 'Selected place');
+    webRef.current?.injectJavaScript(
+      `window.showDroppedPin && window.showDroppedPin(${latitude}, ${longitude}, ${safeTitle}); true;`,
+    );
+  }, []);
+
+  const closePlace = useCallback(() => {
+    clearDroppedPin();
+    setPlace(null);
+  }, [clearDroppedPin]);
+
+  const openPlaceFromOsm = useCallback(
+    async (input: {
+      osmId: number;
+      latitude: number;
+      longitude: number;
+      title?: string | null;
+    }) => {
+      const pinId = `osm-${input.osmId}`;
+      showDroppedPin(input.latitude, input.longitude, input.title ?? undefined);
+      setPlace({
+        id: pinId,
+        latitude: input.latitude,
+        longitude: input.longitude,
+        name: input.title ?? null,
+        address: null,
+        featureClass: null,
+        featureType: null,
+        osmId: input.osmId,
+        osmType: null,
+        loading: true,
+      });
+
+      try {
+        const lookedUp = await lookupNominatimByOsmId(input.osmId);
+        if (!lookedUp) {
+          setPlace((current) =>
+            current && current.id === pinId
+              ? {
+                  ...current,
+                  name: input.title ?? `OSM ${input.osmId}`,
+                  loading: false,
+                }
+              : current,
+          );
+          return;
+        }
+
+        const name =
+          placeName(lookedUp.label, lookedUp.address, lookedUp.featureClass) ??
+          lookedUp.label ??
+          input.title ??
+          `OSM ${input.osmId}`;
+        const address =
+          formatPlaceAddress(lookedUp.address) ?? lookedUp.displayName ?? null;
+
+        showDroppedPin(lookedUp.latitude, lookedUp.longitude, name);
+        setPlace((current) => {
+          if (!current || current.id !== pinId) return current;
+          return {
+            id: pinId,
+            latitude: lookedUp.latitude,
+            longitude: lookedUp.longitude,
+            name,
+            address,
+            featureClass: lookedUp.featureClass,
+            featureType: lookedUp.featureType,
+            osmId: lookedUp.osmId,
+            osmType: lookedUp.osmType,
+            loading: false,
+          };
+        });
+      } catch (error) {
+        console.log('nominatim lookup failed', error);
+        setPlace((current) =>
+          current && current.id === pinId ? { ...current, loading: false } : current,
+        );
+      }
+    },
+    [showDroppedPin],
+  );
+
+  const loadContributionMarkers = useCallback(async () => {
+    try {
+      const places = await getContributedPlaces();
+      const ratingsByPlace = await getRatingsByPlaceOsmIds(places.map((place) => place.osmId));
+      const markersForMap = places.map((place) => {
+        const ratings = ratingsByPlace.get(place.osmId) ?? emptyRatings();
+        const overall = overallAccessibilityRating(ratings);
+        return {
+          id: String(place.osmId),
+          osmId: place.osmId,
+          latitude: place.lat,
+          longitude: place.lng,
+          title: place.label?.trim() || `OSM ${place.osmId}`,
+          fillColor: ratingColor(theme, overall),
+        };
+      });
+      console.log('contribution markers', markersForMap.length);
+      setContributionMarkers(markersForMap);
+    } catch (error) {
+      console.log('load contribution markers failed', error);
+    }
+  }, [setContributionMarkers, theme]);
+
+  useEffect(() => {
+    if (!mapReadyRef.current) return;
+    void loadContributionMarkers();
+  }, [contributionRevision, loadContributionMarkers]);
 
   const canContribute =
     !!place &&
@@ -443,13 +706,22 @@ export default function MapContainer({
         latitude?: number;
         longitude?: number;
         label?: string | null;
+        title?: string | null;
         featureClass?: string | null;
         featureType?: string | null;
         displayName?: string | null;
         address?: NominatimAddress | null;
         osmId?: number | string | null;
+        osmType?: string | null;
         error?: string;
       };
+
+      if (event.type === 'mapReady') {
+        mapReadyRef.current = true;
+        void loadContributionMarkers();
+        return;
+      }
+
       console.log('Map event', event);
 
       if (event.type === 'mapHold' && event.id != null && event.latitude != null && event.longitude != null) {
@@ -484,18 +756,6 @@ export default function MapContainer({
           typeof event.osmType === 'string' && event.osmType.trim()
             ? event.osmType.trim()
             : null;
-        if (hasOsmId) {
-          void cachePlace({
-            osmId: osmIdNum,
-            osmType,
-            label: name ?? address ?? `OSM ${osmIdNum}`,
-            address: address ?? undefined,
-            lat: latitude,
-            lng: longitude,
-            featureClass: event.featureClass ?? null,
-            featureType: event.featureType ?? null,
-          });
-        }
         setPlace((current) => {
           if (current && current.id !== event.id) return current;
           return {
@@ -533,17 +793,32 @@ export default function MapContainer({
         return;
       }
 
+      if (event.type === 'contributionMarkerClick' && event.osmId != null) {
+        const osmIdNum = Number(event.osmId);
+        if (!Number.isFinite(osmIdNum) || event.latitude == null || event.longitude == null) {
+          return;
+        }
+        void openPlaceFromOsm({
+          osmId: osmIdNum,
+          latitude: event.latitude,
+          longitude: event.longitude,
+          title: typeof event.title === 'string' ? event.title : null,
+        });
+        return;
+      }
+
       if (event.type === 'mapClick') {
-        setPlace(null);
+        closePlace();
       }
     } catch {
       console.log('Map event', raw);
     }
-  }, []);
+  }, [closePlace, loadContributionMarkers, openPlaceFromOsm]);
 
   return (
     <View style={styles.map}>
       <WebView
+        ref={webRef}
         originWhitelist={['*']}
         source={{ html, baseUrl: 'https://localhost' }}
         style={styles.webview}
@@ -603,7 +878,7 @@ export default function MapContainer({
                 accessibilityRole="button"
                 accessibilityLabel="Close place details"
                 hitSlop={12}
-                onPress={() => setPlace(null)}
+                onPress={closePlace}
                 style={[styles.closeButton, { backgroundColor: theme.backgroundSelected }]}
               >
                 <ThemedText type="smallBold">X</ThemedText>

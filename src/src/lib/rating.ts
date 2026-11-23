@@ -8,10 +8,20 @@ import {
   type Ratings,
 } from '@/types/contribution';
 
-import { resolvePlaces, type CachedPlace } from './place-cache';
 import { supabase } from './supabase';
 
-export type Place = CachedPlace;
+export type PlaceLocation = {
+  lat: number;
+  lng: number;
+  label?: string;
+};
+
+export type PlaceRow = {
+  osmId: number;
+  lat: number;
+  lng: number;
+  label: string | null;
+};
 
 export interface Rating {
   id: string;
@@ -58,6 +68,15 @@ export function getModeForPlaceRatings(ratings: Rating[]): Ratings {
   return result;
 }
 
+/** Worst non-unknown feature wins: red > yellow > green. */
+export function overallAccessibilityRating(ratings: Ratings): RatingKey {
+  const votes = FEATURES.map((f) => ratings[f.key]).filter((r) => r !== 'unknown');
+  if (votes.includes('undesirable')) return 'undesirable';
+  if (votes.includes('priorBooking')) return 'priorBooking';
+  if (votes.includes('accessible')) return 'accessible';
+  return 'unknown';
+}
+
 export async function getRatingsForPlace(placeOsmId: number): Promise<Rating[] | null> {
   const { data, error } = await supabase
     .from('rating')
@@ -69,7 +88,96 @@ export async function getRatingsForPlace(placeOsmId: number): Promise<Rating[] |
   return data ?? null;
 }
 
-export async function addRating(placeOsmId: number, ratings: Ratings): Promise<void> {
+export async function getContributedOsmIds(): Promise<number[]> {
+  const { data, error } = await supabase.from('rating').select('placeOsmId');
+  if (error) {
+    throw error;
+  }
+  const ids = new Set<number>();
+  for (const row of data ?? []) {
+    const osmId = Number(row.placeOsmId);
+    if (Number.isFinite(osmId)) ids.add(osmId);
+  }
+  return [...ids];
+}
+
+export async function getRatingsByPlaceOsmIds(
+  placeOsmIds: number[],
+): Promise<Map<number, Ratings>> {
+  const result = new Map<number, Ratings>();
+  if (placeOsmIds.length === 0) return result;
+
+  const { data, error } = await supabase
+    .from('rating')
+    .select('placeOsmId, feature, rating')
+    .in(
+      'placeOsmId',
+      placeOsmIds.map((id) => String(id)),
+    );
+  if (error) {
+    throw error;
+  }
+
+  const rowsByPlace = new Map<number, Rating[]>();
+  for (const row of data ?? []) {
+    const osmId = Number(row.placeOsmId);
+    if (!Number.isFinite(osmId)) continue;
+    const list = rowsByPlace.get(osmId) ?? [];
+    list.push(row as Rating);
+    rowsByPlace.set(osmId, list);
+  }
+
+  for (const [osmId, rows] of rowsByPlace) {
+    result.set(osmId, getModeForPlaceRatings(rows));
+  }
+  return result;
+}
+
+export async function upsertPlace(location: PlaceLocation & { osmId: number }): Promise<void> {
+  const { error } = await supabase.from('places').upsert(
+    {
+      osmId: location.osmId,
+      lat: location.lat,
+      lng: location.lng,
+      label: location.label?.trim() || null,
+    },
+    { onConflict: 'osmId' },
+  );
+  if (error) {
+    throw error;
+  }
+}
+
+export async function getPlacesByOsmIds(osmIds: number[]): Promise<PlaceRow[]> {
+  if (osmIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('places')
+    .select('osmId, lat, lng, label')
+    .in(
+      'osmId',
+      osmIds.map((id) => String(id)),
+    );
+  if (error) {
+    throw error;
+  }
+  return (data ?? []).map((row) => ({
+    osmId: Number(row.osmId),
+    lat: Number(row.lat),
+    lng: Number(row.lng),
+    label: row.label ?? null,
+  }));
+}
+
+export async function getContributedPlaces(): Promise<PlaceRow[]> {
+  const osmIds = await getContributedOsmIds();
+  return getPlacesByOsmIds(osmIds);
+}
+
+export async function addRating(
+  placeOsmId: number,
+  ratings: Ratings,
+  location: PlaceLocation,
+): Promise<void> {
   const {
     data: { user },
     error: authError,
@@ -80,6 +188,16 @@ export async function addRating(placeOsmId: number, ratings: Ratings): Promise<v
   if (!user) {
     throw new Error('Not signed in');
   }
+  if (!Number.isFinite(location.lat) || !Number.isFinite(location.lng)) {
+    throw new Error('Place latitude/longitude required');
+  }
+
+  await upsertPlace({
+    osmId: placeOsmId,
+    lat: location.lat,
+    lng: location.lng,
+    label: location.label,
+  });
 
   const rows = FEATURES.map(({ key }) => ({
     authUID: user.id,
@@ -131,7 +249,8 @@ export async function getMyContributions(authUID: string): Promise<Contribution[
   }
 
   const osmIds = [...byPlace.keys()];
-  const placeByOsmId = await resolvePlaces(osmIds);
+  const places = await getPlacesByOsmIds(osmIds);
+  const placeByOsmId = new Map(places.map((place) => [place.osmId, place] as const));
 
   return osmIds
     .map((osmId) => {

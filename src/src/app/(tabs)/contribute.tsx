@@ -26,7 +26,6 @@ import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useContributions } from '@/context/contributions-context';
 import { useAnnouncer } from '@/hooks/use-announcer';
 import { useTheme } from '@/hooks/use-theme';
-import { cachePlace } from '@/lib/place-cache';
 import { addRating } from '@/lib/rating';
 import { useUser } from '@/lib/user-context';
 import {
@@ -149,21 +148,21 @@ export default function ContributeScreen() {
       show('This place has no OSM id. Pick another place on the map.', 'error');
       return;
     }
+    if (form.latitude == null || form.longitude == null) {
+      show('This place has no coordinates. Pick another place on the map.', 'error');
+      return;
+    }
     if (saving) return;
     setSaving(true);
     const wasEditing = form.editingId !== null;
     const snapshot = form;
 
     try {
-      await cachePlace({
-        osmId: snapshot.osmId!,
-        osmType: snapshot.osmType,
+      await addRating(snapshot.osmId!, snapshot.ratings, {
         label: snapshot.placeName || snapshot.address,
-        address: snapshot.placeAddress || snapshot.address,
-        lat: snapshot.latitude,
-        lng: snapshot.longitude,
+        lat: snapshot.latitude!,
+        lng: snapshot.longitude!,
       });
-      await addRating(snapshot.osmId!, snapshot.ratings);
       await refresh();
       setForm(emptyForm());
       show(
