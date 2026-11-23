@@ -10,8 +10,8 @@ export const FEATURES = [
 export const RATINGS = [
   { key: 'unknown', label: 'No info' },
   { key: 'accessible', label: 'Accessible' },
-  { key: 'priorBooking', label: 'Needs booking' },
-  { key: 'undesirable', label: 'Not accessible' },
+  { key: 'priorBooking', label: 'Requires prior booking' },
+  { key: 'undesirable', label: 'Undesirable' },
 ] as const;
 
 export type FeatureKey = (typeof FEATURES)[number]['key'];
