@@ -21,6 +21,7 @@ import {
   type MessageKind,
   type UiMessage,
 } from '@/components/form-controls';
+import { RatingDot, RatingLegend, ratingColor } from '@/components/rating-legend';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useContributions, type SyncResult } from '@/context/contributions-context';
@@ -280,12 +281,15 @@ export default function ContributeScreen() {
               </View>
             ) : null}
 
+            <RatingLegend />
+
             {FEATURES.map((feature) => (
               <ChipGroup
                 key={feature.key}
                 label={feature.label}
                 options={RATINGS}
                 value={form.ratings[feature.key]}
+                colorFor={(rating) => ratingColor(theme, rating)}
                 onChange={(rating) =>
                   setForm((f) => ({ ...f, ratings: { ...f.ratings, [feature.key]: rating } }))
                 }
@@ -392,9 +396,12 @@ function ContributionCard({
 
       <View>
         {rated.map((f) => (
-          <ThemedText key={f.key} type="small">
-            • {f.label}: {ratingLabel(item.ratings[f.key])}
-          </ThemedText>
+          <View key={f.key} style={styles.ratingRow}>
+            <RatingDot rating={item.ratings[f.key]} />
+            <ThemedText type="small" style={styles.flex}>
+              {f.label}: {ratingLabel(item.ratings[f.key])}
+            </ThemedText>
+          </View>
         ))}
         {missing > 0 ? (
           <ThemedText type="small" themeColor="textSecondary">
@@ -446,6 +453,11 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   address: { fontSize: 16, lineHeight: 22 },
+  ratingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
   badge: {
     borderWidth: 1.5,
     borderRadius: Spacing.two,
