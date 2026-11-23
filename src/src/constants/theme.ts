@@ -21,6 +21,10 @@ export const Colors = {
     danger: '#B3261E',
     success: '#1B6E2E',
     info: '#1D4E89',
+    ratingNone: '#6B7280',
+    ratingGood: '#1B6E2E',
+    ratingWarn: '#FFC300',
+    ratingBad: '#B3261E',
   },
   dark: {
     text: '#ffffff',
@@ -35,6 +39,10 @@ export const Colors = {
     danger: '#F2B8B5',
     success: '#8FD19E',
     info: '#9CC3F5',
+    ratingNone: '#9CA3AF',
+    ratingGood: '#4CAF50',
+    ratingWarn: '#F5C542',
+    ratingBad: '#EF5350',
   },
   /** Yellow on black, the usual high contrast scheme for low-vision users. */
   highContrast: {
@@ -50,6 +58,10 @@ export const Colors = {
     danger: '#FF8A80',
     success: '#7CFF7C',
     info: '#7CC8FF',
+    ratingNone: '#B0B0B0',
+    ratingGood: '#7CFF7C',
+    ratingWarn: '#FFD600',
+    ratingBad: '#FF8A80',
   },
 } as const;
 

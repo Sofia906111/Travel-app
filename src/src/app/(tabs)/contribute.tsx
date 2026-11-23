@@ -40,7 +40,11 @@ import {
 
 type FormState = {
   editingId: string | null;
+  /** Combined string saved on the contribution. */
   address: string;
+  placeName: string;
+  placeAddress: string;
+  placeKind: string;
   latitude: number | null;
   longitude: number | null;
   ratings: Ratings;
@@ -50,11 +54,22 @@ type FormState = {
 const emptyForm = (): FormState => ({
   editingId: null,
   address: '',
+  placeName: '',
+  placeAddress: '',
+  placeKind: '',
   latitude: null,
   longitude: null,
   ratings: emptyRatings(),
   comment: '',
 });
+
+/** Turns OSM type/class like `guest_house` / `shop` into a short label. */
+function formatPlaceKind(featureType?: string, featureClass?: string): string {
+  const raw = (featureType || featureClass || '').trim();
+  if (!raw) return '';
+  const spaced = raw.replace(/_/g, ' ');
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
 
 /**
  * Contribute tab (core task): rate the accessibility of a place.
@@ -65,10 +80,14 @@ export default function ContributeScreen() {
   const insets = useSafeAreaInsets();
   const announce = useAnnouncer();
   const { preferences } = usePreferences();
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   const { contributions, loaded, isOnline, isSyncing, pendingCount, save, remove, sync } = useContributions();
   const params = useLocalSearchParams<{
     address?: string;
+    name?: string;
+    addressLine?: string;
+    featureClass?: string;
+    featureType?: string;
     latitude?: string;
     longitude?: string;
   }>();
@@ -87,20 +106,38 @@ export default function ContributeScreen() {
   useEffect(() => {
     const address = typeof params.address === 'string' ? params.address.trim() : '';
     if (!address) return;
+    const placeName =
+      typeof params.name === 'string' && params.name.trim() ? params.name.trim() : address;
+    const placeAddress =
+      typeof params.addressLine === 'string' ? params.addressLine.trim() : '';
+    const placeKind = formatPlaceKind(
+      typeof params.featureType === 'string' ? params.featureType : undefined,
+      typeof params.featureClass === 'string' ? params.featureClass : undefined,
+    );
     const latitude = params.latitude != null ? Number(params.latitude) : NaN;
     const longitude = params.longitude != null ? Number(params.longitude) : NaN;
     setForm({
       editingId: null,
       address,
+      placeName,
+      placeAddress,
+      placeKind,
       latitude: Number.isFinite(latitude) ? latitude : null,
       longitude: Number.isFinite(longitude) ? longitude : null,
       ratings: emptyRatings(),
       comment: '',
     });
-    show(`Place filled from the map: ${address}`, 'info');
     // Only react to incoming map params, not every form edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.address, params.latitude, params.longitude]);
+  }, [
+    params.address,
+    params.name,
+    params.addressLine,
+    params.featureClass,
+    params.featureType,
+    params.latitude,
+    params.longitude,
+  ]);
 
   const resultMessage = (r: SyncResult, done: string, offline: string): [string, MessageKind] => {
     if (r.kind === 'allSynced') return [done, 'success'];
@@ -146,12 +183,14 @@ export default function ContributeScreen() {
     setForm({
       editingId: item.id,
       address: item.address,
+      placeName: item.address,
+      placeAddress: '',
+      placeKind: '',
       latitude: item.latitude,
       longitude: item.longitude,
       ratings: { ...emptyRatings(), ...item.ratings },
       comment: item.comment,
     });
-    show(`Editing "${item.address}".`, 'info');
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
 
@@ -219,19 +258,43 @@ export default function ContributeScreen() {
           {message ? <MessageBanner message={message} onDismiss={() => setMessage(null)} /> : null}
 
           <SectionTitle>{isEditing ? 'Edit place' : 'Add a place'}</SectionTitle>
-          {!hasPlace ? (
+          {userLoading ? (
+            <ActivityIndicator color={theme.primary} />
+          ) : !user ? (
+            <ThemedText themeColor="textSecondary">
+              Sign in to contribute to AccessWay.
+            </ThemedText>
+          ) : !hasPlace ? (
             <ThemedText themeColor="textSecondary">
               Select the place from map and press Contribute.
             </ThemedText>
           ) : (
             <Card>
-              <TextField
-                label="Place"
-                value={form.address}
-                editable={false}
-                selectTextOnFocus={false}
-                accessibilityHint="Selected from the map; not editable"
-              />
+              <View
+                accessible
+                accessibilityLabel={[
+                  form.placeName,
+                  form.placeKind,
+                  form.placeAddress,
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
+                style={styles.placeSummary}
+              >
+                <ThemedText type="heading" numberOfLines={2}>
+                  {form.placeName || form.address}
+                </ThemedText>
+                {form.placeKind ? (
+                  <ThemedText type="small" themeColor="textSecondary">
+                    {form.placeKind}
+                  </ThemedText>
+                ) : null}
+                {form.placeAddress && form.placeAddress !== form.placeName ? (
+                  <ThemedText themeColor="textSecondary" numberOfLines={3}>
+                    {form.placeAddress}
+                  </ThemedText>
+                ) : null}
+              </View>
 
               <RatingLegend />
 
@@ -321,8 +384,8 @@ function ContributionCard({
   const missing = FEATURES.length - rated.length;
 
   let status: { text: string; color: string };
-  if (item.syncState === 'synced') status = { text: '✓ Uploaded', color: theme.success };
-  else if (item.lastSyncError) status = { text: `⚠ Upload failed: ${item.lastSyncError}`, color: theme.danger };
+  if (item.syncState === 'synced') status = { text: 'Uploaded', color: theme.success };
+  else if (item.lastSyncError) status = { text: `Upload failed: ${item.lastSyncError}`, color: theme.danger };
   else if (isSyncing) status = { text: '↑ Uploading…', color: theme.info };
   else status = { text: '⏳ Saved on phone, waiting for network', color: theme.info };
 
@@ -376,6 +439,9 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: MaxContentWidth,
     gap: Spacing.three,
+  },
+  placeSummary: {
+    gap: 4,
   },
   comment: { minHeight: 96 },
   buttonRow: {

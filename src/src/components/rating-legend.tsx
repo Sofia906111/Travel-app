@@ -21,13 +21,9 @@ export function ratingColor(theme: Theme, rating: RatingKey): string {
   }
 }
 
-/** The three colored ratings shown in the legend ("No info" is left out, as in the Figma). */
 const LEGEND_ITEMS = RATINGS.filter((r) => r.key !== 'unknown');
 
-/**
- * Color legend (from the Figma prototype): ● Accessible  ● Requires prior booking  ● Undesirable.
- * TalkBack reads it as one sentence instead of three loose dots.
- */
+
 export function RatingLegend() {
   const theme = useTheme();
   const spoken = 'Color legend: ' + LEGEND_ITEMS.map((r) => r.label).join(', ');

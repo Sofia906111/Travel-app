@@ -119,17 +119,19 @@ export function RadioGroup<T extends string | number>({
   );
 }
 
-/** Horizontal, wrapping chips: pick one option (used for the accessibility ratings). */
 export function ChipGroup<T extends string>({
   label,
   options,
   value,
   onChange,
+  colorFor,
 }: {
   label: string;
   options: readonly { key: T; label: string }[];
   value: T;
   onChange: (value: T) => void;
+  /** When set, selected chip uses this color (e.g. rating traffic lights). */
+  colorFor?: (value: T) => string;
 }) {
   const theme = useTheme();
   return (
@@ -138,6 +140,9 @@ export function ChipGroup<T extends string>({
       <View style={styles.chipRow} accessibilityRole="radiogroup" accessibilityLabel={label}>
         {options.map((option) => {
           const selected = option.key === value;
+          const tint = colorFor?.(option.key) ?? theme.primary;
+          // Yellow fill needs dark label text for contrast.
+          const onTint = option.key === 'priorBooking' ? '#000000' : '#ffffff';
           return (
             <Pressable
               key={option.key}
@@ -148,13 +153,12 @@ export function ChipGroup<T extends string>({
               style={({ pressed }) => [
                 styles.chip,
                 {
-                  borderColor: selected ? theme.primary : theme.border,
-                  backgroundColor: selected ? theme.primary : theme.background,
+                  borderColor: selected ? tint : theme.border,
+                  backgroundColor: selected ? tint : theme.background,
                 },
                 pressed && styles.pressed,
               ]}>
-              <ThemedText type="small" style={{ color: selected ? theme.onPrimary : theme.text }}>
-                {selected ? '✓ ' : ''}
+              <ThemedText type="small" style={{ color: selected ? onTint : theme.text }}>
                 {option.label}
               </ThemedText>
             </Pressable>

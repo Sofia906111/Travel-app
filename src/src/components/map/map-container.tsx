@@ -44,6 +44,7 @@ type PlacePreview = {
   name: string | null;
   address: string | null;
   featureClass: string | null;
+  featureType: string | null;
   loading: boolean;
 };
 
@@ -93,6 +94,11 @@ const PLACE_FEATURE_CLASSES = new Set([
   'club',
   'aerialway',
 ]);
+
+/** Contribute button: same as places, but amenities are excluded. */
+const CONTRIBUTABLE_FEATURE_CLASSES = new Set(
+  [...PLACE_FEATURE_CLASSES].filter((c) => c !== 'amenity'),
+);
 
 function placeNameFromAddress(address: NominatimAddress | null | undefined): string | null {
   if (!address) return null;
@@ -362,20 +368,22 @@ export default function MapContainer({
     !!place &&
     !place.loading &&
     place.featureClass != null &&
-    PLACE_FEATURE_CLASSES.has(place.featureClass);
+    CONTRIBUTABLE_FEATURE_CLASSES.has(place.featureClass);
 
   const onContribute = useCallback(() => {
     if (!place || !canContribute) return;
-    const address =
-      place.name && place.name !== 'Dropped pin'
-        ? place.address
-          ? `${place.name}, ${place.address}`
-          : place.name
-        : place.address ?? '';
+    const name =
+      place.name && place.name !== 'Dropped pin' ? place.name : place.address ?? 'Selected place';
+    const addressLine = place.address ?? '';
+    const address = addressLine && name !== addressLine ? `${name}, ${addressLine}` : name;
     router.push({
       pathname: '/contribute',
       params: {
+        name,
+        addressLine,
         address,
+        featureClass: place.featureClass ?? '',
+        featureType: place.featureType ?? '',
         latitude: String(place.latitude),
         longitude: String(place.longitude),
       },
@@ -412,6 +420,7 @@ export default function MapContainer({
           name: null,
           address: null,
           featureClass: null,
+          featureType: null,
           loading: true,
         });
         return;
@@ -433,6 +442,7 @@ export default function MapContainer({
               ? formatPlaceAddress(event.address) ?? event.displayName ?? null
               : null,
             featureClass: event.featureClass ?? null,
+            featureType: event.featureType ?? null,
             loading: false,
           };
         });
@@ -449,6 +459,7 @@ export default function MapContainer({
             name: 'Dropped pin',
             address: null,
             featureClass: null,
+            featureType: null,
             loading: false,
           };
         });
