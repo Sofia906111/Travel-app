@@ -38,8 +38,6 @@ export type Contribution = {
   /** Id given by the server after the first successful upload. */
   remoteId: string | null;
   lastSyncError: string | null;
-  /** Fictional sample data added from Preferences → Demo. Shown with a "TEST DATA" badge. */
-  isTestData?: boolean;
 };
 
 export function emptyRatings(): Ratings {

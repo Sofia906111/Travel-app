@@ -10,9 +10,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
  * Any screen can read them with `usePreferences()`:
  *  - theme / textScale  -> used by `useTheme()` and `ThemedText` (whole app)
  *  - showWheelchairBadge -> meant for the Map screen
- *  - voiceAssistance    -> used by `useAnnouncer()` (speaks messages aloud)
  *  - name + surname     -> author of contributions
- *  - simulateServerFailure -> makes the MOCK backend fail (failure demo)
  */
 
 export type ThemeOption = 'system' | 'light' | 'dark' | 'highContrast';
@@ -36,10 +34,7 @@ export type UserPreferences = {
   surname: string;
   showWheelchairBadge: boolean;
   theme: ThemeOption;
-  voiceAssistance: boolean;
   textScale: number;
-  /** SIMULATED BEHAVIOUR: forces the mock backend to answer HTTP 503, for the failure demo. */
-  simulateServerFailure: boolean;
 };
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
@@ -47,9 +42,7 @@ export const DEFAULT_PREFERENCES: UserPreferences = {
   surname: '',
   showWheelchairBadge: true,
   theme: 'system',
-  voiceAssistance: false,
   textScale: 1,
-  simulateServerFailure: false,
 };
 
 const STORAGE_KEY = 'accessway.preferences.v1';
@@ -67,10 +60,7 @@ function sanitize(raw: unknown): UserPreferences {
     surname: typeof r.surname === 'string' ? r.surname : d.surname,
     showWheelchairBadge: typeof r.showWheelchairBadge === 'boolean' ? r.showWheelchairBadge : d.showWheelchairBadge,
     theme: THEME_OPTIONS.some((o) => o.value === r.theme) ? (r.theme as ThemeOption) : d.theme,
-    voiceAssistance: typeof r.voiceAssistance === 'boolean' ? r.voiceAssistance : d.voiceAssistance,
     textScale: TEXT_SCALE_OPTIONS.some((o) => o.value === r.textScale) ? (r.textScale as number) : d.textScale,
-    simulateServerFailure:
-      typeof r.simulateServerFailure === 'boolean' ? r.simulateServerFailure : d.simulateServerFailure,
   };
 }
 

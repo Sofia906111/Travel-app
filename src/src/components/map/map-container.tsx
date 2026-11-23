@@ -1,12 +1,50 @@
-import { useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import WebView from 'react-native-webview';
+
+import { Button } from '@/components/form-controls';
+import { ThemedText } from '@/components/themed-text';
+import { Spacing } from '@/constants/theme';
+import { useTheme } from '@/hooks/use-theme';
 
 type MapMarker = {
   id: string;
   latitude: number;
   longitude: number;
   title?: string;
+};
+
+type NominatimAddress = {
+  building?: string;
+  amenity?: string;
+  tourism?: string;
+  shop?: string;
+  office?: string;
+  leisure?: string;
+  road?: string;
+  pedestrian?: string;
+  house_number?: string;
+  suburb?: string;
+  neighbourhood?: string;
+  city?: string;
+  town?: string;
+  village?: string;
+  municipality?: string;
+  postcode?: string;
+  country?: string;
+  [key: string]: string | undefined;
+};
+
+type PlacePreview = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  name: string | null;
+  address: string | null;
+  featureClass: string | null;
+  loading: boolean;
 };
 
 type Props = {
@@ -25,6 +63,65 @@ const DEFAULT_MARKERS: MapMarker[] = [
     title: 'International Faculty of Engineering',
   },
 ];
+
+function formatStreet(address: NominatimAddress | null | undefined): string | null {
+  if (!address) return null;
+  const road = address.road || address.pedestrian;
+  const street = [road, address.house_number].filter(Boolean).join(' ');
+  return street || null;
+}
+
+function formatPlaceAddress(address: NominatimAddress | null | undefined): string | null {
+  if (!address) return null;
+  const street = formatStreet(address);
+  const locality =
+    address.city || address.town || address.village || address.municipality || address.suburb;
+  const parts = [street, address.postcode, locality, address.country].filter(Boolean);
+  return parts.length ? parts.join(', ') : null;
+}
+
+const PLACE_FEATURE_CLASSES = new Set([
+  'amenity',
+  'tourism',
+  'shop',
+  'office',
+  'leisure',
+  'building',
+  'historic',
+  'craft',
+  'healthcare',
+  'club',
+  'aerialway',
+]);
+
+function placeNameFromAddress(address: NominatimAddress | null | undefined): string | null {
+  if (!address) return null;
+  const building =
+    address.building && address.building !== 'yes' ? address.building : null;
+  return (
+    address.amenity ||
+    address.tourism ||
+    address.shop ||
+    address.office ||
+    address.leisure ||
+    building ||
+    null
+  );
+}
+
+function placeName(
+  label: string | null | undefined,
+  address: NominatimAddress | null | undefined,
+  featureClass: string | null | undefined,
+): string | null {
+  const fromAddress = placeNameFromAddress(address);
+  if (fromAddress) return fromAddress;
+  // Only use Nominatim's name when the feature itself is a place, not a road.
+  if (label && featureClass && PLACE_FEATURE_CLASSES.has(featureClass)) {
+    return label;
+  }
+  return null;
+}
 
 function buildMapHtml(
   center: { latitude: number; longitude: number },
@@ -138,6 +235,52 @@ function buildMapHtml(
         holdStartPoint = null;
       }
 
+      function reverseGeocode(lat, lng, pinId) {
+        var url =
+          'https://nominatim.openstreetmap.org/reverse'
+          + '?lat=' + encodeURIComponent(lat)
+          + '&lon=' + encodeURIComponent(lng)
+          + '&format=json'
+          + '&addressdetails=1'
+          + '&extratags=1'
+          + '&namedetails=1'
+          + '&zoom=18';
+
+        fetch(url, {
+          headers: {
+            'Accept': 'application/json',
+            'Accept-Language': 'en',
+          },
+        })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            console.log('[mapHold] nominatim', { lat: lat, lng: lng, data: data });
+            sendToApp({
+              type: 'mapHoldGeocode',
+              id: pinId,
+              latitude: lat,
+              longitude: lng,
+              label: data && data.name ? data.name : null,
+              featureClass: data && data.class ? data.class : null,
+              featureType: data && data.type ? data.type : null,
+              displayName: data && data.display_name ? data.display_name : null,
+              address: data && data.address ? data.address : null,
+              osmType: data && data.osm_type ? data.osm_type : null,
+              osmId: data && data.osm_id ? data.osm_id : null,
+            });
+          })
+          .catch(function (err) {
+            console.log('[mapHold] nominatim error', err && err.message ? err.message : err);
+            sendToApp({
+              type: 'mapHoldGeocodeError',
+              id: pinId,
+              latitude: lat,
+              longitude: lng,
+              error: String(err && err.message ? err.message : err),
+            });
+          });
+      }
+
       function startHold(latlng, point) {
         clearHoldTimer();
         holdStartPoint = point;
@@ -150,6 +293,7 @@ function buildMapHtml(
             longitude: latlng.lng,
             title: 'Dropped pin',
           };
+          console.log('[mapHold] lat/lng', pin.latitude, pin.longitude);
           if (droppedPin) {
             map.removeLayer(droppedPin);
           }
@@ -160,6 +304,7 @@ function buildMapHtml(
             latitude: pin.latitude,
             longitude: pin.longitude,
           });
+          reverseGeocode(pin.latitude, pin.longitude, pin.id);
         }, HOLD_MS);
       }
 
@@ -208,10 +353,115 @@ export default function MapContainer({
   zoom = DEFAULT_ZOOM,
   markers = DEFAULT_MARKERS,
 }: Props) {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [place, setPlace] = useState<PlacePreview | null>(null);
+
+  const canContribute =
+    !!place &&
+    !place.loading &&
+    place.featureClass != null &&
+    PLACE_FEATURE_CLASSES.has(place.featureClass);
+
+  const onContribute = useCallback(() => {
+    if (!place || !canContribute) return;
+    const address =
+      place.name && place.name !== 'Dropped pin'
+        ? place.address
+          ? `${place.name}, ${place.address}`
+          : place.name
+        : place.address ?? '';
+    router.push({
+      pathname: '/contribute',
+      params: {
+        address,
+        latitude: String(place.latitude),
+        longitude: String(place.longitude),
+      },
+    });
+  }, [canContribute, place, router]);
+
   const html = useMemo(
     () => buildMapHtml(center, zoom, markers),
     [center, zoom, markers],
   );
+
+  const handleMessage = useCallback((raw: string) => {
+    try {
+      const event = JSON.parse(raw) as {
+        type: string;
+        id?: string;
+        latitude?: number;
+        longitude?: number;
+        label?: string | null;
+        featureClass?: string | null;
+        featureType?: string | null;
+        displayName?: string | null;
+        address?: NominatimAddress | null;
+        osmId?: number | string | null;
+        error?: string;
+      };
+      console.log('Map event', event);
+
+      if (event.type === 'mapHold' && event.id != null && event.latitude != null && event.longitude != null) {
+        setPlace({
+          id: event.id,
+          latitude: event.latitude,
+          longitude: event.longitude,
+          name: null,
+          address: null,
+          featureClass: null,
+          loading: true,
+        });
+        return;
+      }
+
+      if (event.type === 'mapHoldGeocode' && event.id != null) {
+        const hasOsmId = event.osmId != null && event.osmId !== '';
+        const name = hasOsmId
+          ? placeName(event.label, event.address, event.featureClass)
+          : null;
+        setPlace((current) => {
+          if (current && current.id !== event.id) return current;
+          return {
+            id: event.id!,
+            latitude: event.latitude ?? current?.latitude ?? 0,
+            longitude: event.longitude ?? current?.longitude ?? 0,
+            name: name ?? 'Dropped pin',
+            address: hasOsmId
+              ? formatPlaceAddress(event.address) ?? event.displayName ?? null
+              : null,
+            featureClass: event.featureClass ?? null,
+            loading: false,
+          };
+        });
+        return;
+      }
+
+      if (event.type === 'mapHoldGeocodeError' && event.id != null) {
+        setPlace((current) => {
+          if (current && current.id !== event.id) return current;
+          return {
+            id: event.id!,
+            latitude: event.latitude ?? current?.latitude ?? 0,
+            longitude: event.longitude ?? current?.longitude ?? 0,
+            name: 'Dropped pin',
+            address: null,
+            featureClass: null,
+            loading: false,
+          };
+        });
+        return;
+      }
+
+      if (event.type === 'mapClick') {
+        setPlace(null);
+      }
+    } catch {
+      console.log('Map event', raw);
+    }
+  }, []);
 
   return (
     <View style={styles.map}>
@@ -230,13 +480,69 @@ export default function MapContainer({
           console.log('Map WebView loaded');
         }}
         onMessage={(event) => {
-          try {
-            console.log('Map event', JSON.parse(event.nativeEvent.data));
-          } catch {
-            console.log('Map event', event.nativeEvent.data);
-          }
+          handleMessage(event.nativeEvent.data);
         }}
       />
+
+      {place ? (
+        <View
+          pointerEvents="box-none"
+          style={[
+            styles.placeCardWrap,
+            { paddingBottom: Math.max(insets.bottom, Spacing.three) },
+          ]}
+        >
+          <View
+            style={[
+              styles.placeCard,
+              {
+                backgroundColor: theme.background,
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <View style={styles.placeCardHeader}>
+              <View style={styles.placeCardText}>
+                {place.loading ? (
+                  <View style={styles.loadingRow}>
+                    <ActivityIndicator color={theme.primary} size="small" />
+                    <ThemedText themeColor="textSecondary">Looking up place…</ThemedText>
+                  </View>
+                ) : (
+                  <>
+                    <ThemedText type="heading" numberOfLines={2}>
+                      {place.name ?? 'Dropped pin'}
+                    </ThemedText>
+                    {place.address ? (
+                      <ThemedText themeColor="textSecondary" numberOfLines={3}>
+                        {place.address}
+                      </ThemedText>
+                    ) : null}
+                  </>
+                )}
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close place details"
+                hitSlop={12}
+                onPress={() => setPlace(null)}
+                style={[styles.closeButton, { backgroundColor: theme.backgroundSelected }]}
+              >
+                <ThemedText type="smallBold">X</ThemedText>
+              </Pressable>
+            </View>
+            {canContribute ? (
+              <View style={styles.contributeRow}>
+                <Button
+                  title="Contribute"
+                  onPress={onContribute}
+                  accessibilityHint={`Rate accessibility for ${place.name ?? 'this place'}`}
+                />
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -253,5 +559,49 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     backgroundColor: 'transparent',
+  },
+  placeCardWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: Spacing.three,
+    paddingTop: Spacing.two,
+  },
+  placeCard: {
+    borderWidth: StyleSheet.hairlineWidth,
+    borderRadius: 16,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  placeCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.two,
+  },
+  placeCardText: {
+    flex: 1,
+    gap: 4,
+  },
+  contributeRow: {
+    marginTop: Spacing.three,
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+    minHeight: 28,
+  },
+  closeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

@@ -1,23 +1,19 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   Button,
   Card,
-  MessageBanner,
   RadioGroup,
   SectionTitle,
   SettingSwitch,
   TextField,
-  type UiMessage,
 } from '@/components/form-controls';
 import { ThemedText } from '@/components/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useContributions } from '@/context/contributions-context';
 import { TEXT_SCALE_OPTIONS, THEME_OPTIONS, usePreferences } from '@/context/preferences-context';
-import { speak, useAnnouncer } from '@/hooks/use-announcer';
+import { useAnnouncer } from '@/hooks/use-announcer';
 import { useTheme } from '@/hooks/use-theme';
 import { logout } from '@/lib/user';
 import { useUser } from '@/lib/user-context';
@@ -30,17 +26,9 @@ import { useUser } from '@/lib/user-context';
 export default function PreferencesScreen() {
   const { preferences: p, update } = usePreferences();
   const { user, loading } = useUser();
-  const { addSampleData } = useContributions();
   const announce = useAnnouncer();
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [message, setMessage] = useState<UiMessage | null>(null);
-
-  const onAddSamples = async () => {
-    setMessage({ text: 'Two TEST DATA contributions added. Open the Contribute tab to see them.', kind: 'success' });
-    announce('Two test contributions added');
-    await addSampleData();
-  };
 
   return (
     <ScrollView
@@ -58,7 +46,6 @@ export default function PreferencesScreen() {
           Changes are saved on this phone straight away and kept when you close the app.
         </ThemedText>
 
-        {/* ---- Account (Supabase Auth) ---------------------------------------------------- */}
         <SectionTitle>Account</SectionTitle>
         <Card>
           <ThemedText>{loading ? 'Loading account…' : user ? user.email : 'Not signed in'}</ThemedText>
@@ -75,31 +62,33 @@ export default function PreferencesScreen() {
           )}
         </Card>
 
-        {/* ---- Profile ------------------------------------------------------------------- */}
-        <SectionTitle>Profile</SectionTitle>
-        <Card>
-          <TextField
-            label="Name"
-            value={p.name}
-            onChangeText={(name) => update({ name })}
-            autoCapitalize="words"
-            autoComplete="given-name"
-            placeholder="Your name"
-          />
-          <TextField
-            label="Surname"
-            value={p.surname}
-            onChangeText={(surname) => update({ surname })}
-            autoCapitalize="words"
-            autoComplete="family-name"
-            placeholder="Your surname"
-          />
-          <ThemedText type="small" themeColor="textSecondary">
-            Shown as the author of your contributions. Leave empty to appear as &quot;Anonymous&quot;.
-          </ThemedText>
-        </Card>
+        {user ? (
+          <>
+            <SectionTitle>Profile</SectionTitle>
+            <Card>
+              <TextField
+                label="Name"
+                value={p.name}
+                onChangeText={(name) => update({ name })}
+                autoCapitalize="words"
+                autoComplete="given-name"
+                placeholder="Your name"
+              />
+              <TextField
+                label="Surname"
+                value={p.surname}
+                onChangeText={(surname) => update({ surname })}
+                autoCapitalize="words"
+                autoComplete="family-name"
+                placeholder="Your surname"
+              />
+              <ThemedText type="small" themeColor="textSecondary">
+                Shown as the author of your contributions. Leave empty to appear as &quot;Anonymous&quot;.
+              </ThemedText>
+            </Card>
+          </>
+        ) : null}
 
-        {/* ---- Map preferences ----------------------------------------------------------- */}
         <SectionTitle>Map preferences</SectionTitle>
         <Card>
           <SettingSwitch
@@ -110,7 +99,6 @@ export default function PreferencesScreen() {
           />
         </Card>
 
-        {/* ---- Accessibility ------------------------------------------------------------- */}
         <SectionTitle>Accessibility</SectionTitle>
         <ThemedText type="smallBold">Theme</ThemedText>
         <Card>
@@ -136,36 +124,6 @@ export default function PreferencesScreen() {
           <ThemedText type="small" themeColor="textSecondary">
             Multiplies the text size of the app. It combines with the font size of your phone.
           </ThemedText>
-        </Card>
-
-        <Card>
-          <SettingSwitch
-            title="Voice assistance"
-            subtitle="Reads confirmations and errors aloud, for users with low vision."
-            value={p.voiceAssistance}
-            onValueChange={(voiceAssistance) => {
-              update({ voiceAssistance });
-              if (voiceAssistance) speak('Voice assistance on');
-            }}
-          />
-        </Card>
-
-        {/* ---- Demo controls, clearly labelled as simulated -------------------------------- */}
-        <SectionTitle>Demo: simulated behaviour</SectionTitle>
-        <Card>
-          <SettingSwitch
-            title="Simulate server failure (MOCK)"
-            subtitle="The mock server answers HTTP 503 so the error path can be shown. For a real offline test, turn on airplane mode."
-            value={p.simulateServerFailure}
-            onValueChange={(simulateServerFailure) => update({ simulateServerFailure })}
-          />
-          <Button
-            variant="secondary"
-            title="Add sample contributions (TEST DATA)"
-            accessibilityHint="Adds two fictional places to the Contribute list"
-            onPress={onAddSamples}
-          />
-          {message ? <MessageBanner message={message} onDismiss={() => setMessage(null)} /> : null}
         </Card>
       </View>
     </ScrollView>

@@ -1,9 +1,9 @@
-import { useRef, useState, type ComponentRef } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -29,7 +29,6 @@ import { displayName, usePreferences } from '@/context/preferences-context';
 import { useAnnouncer } from '@/hooks/use-announcer';
 import { useTheme } from '@/hooks/use-theme';
 import { useUser } from '@/lib/user-context';
-import { getCurrentLocation } from '@/services/location';
 import {
   emptyRatings,
   FEATURES,
@@ -57,13 +56,9 @@ const emptyForm = (): FormState => ({
   comment: '',
 });
 
-/** What the location button shows after the permission was refused. */
-type PermissionUi = 'none' | 'denied' | 'blocked';
-
 /**
  * Contribute tab (core task): rate the accessibility of a place.
- * Create / edit / delete, saved on the phone first and uploaded to the MOCK server
- * (see `context/contributions-context.tsx`).
+ * Places are selected on the map (hold → Contribute); address is not typed here.
  */
 export default function ContributeScreen() {
   const theme = useTheme();
@@ -72,13 +67,15 @@ export default function ContributeScreen() {
   const { preferences } = usePreferences();
   const { user } = useUser();
   const { contributions, loaded, isOnline, isSyncing, pendingCount, save, remove, sync } = useContributions();
+  const params = useLocalSearchParams<{
+    address?: string;
+    latitude?: string;
+    longitude?: string;
+  }>();
 
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [addressError, setAddressError] = useState<string | null>(null);
-  const [locating, setLocating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [permissionUi, setPermissionUi] = useState<PermissionUi>('none');
   const [message, setMessage] = useState<UiMessage | null>(null);
 
   const show = (text: string, kind: MessageKind) => {
@@ -86,40 +83,25 @@ export default function ContributeScreen() {
     announce(text);
   };
 
-  // ---- Mobile capability: location ------------------------------------------------------------
-  const onUseLocation = async () => {
-    setLocating(true);
-    const result = await getCurrentLocation();
-    setLocating(false);
-    switch (result.kind) {
-      case 'success': {
-        const fallback = `${result.latitude.toFixed(5)}, ${result.longitude.toFixed(5)}`;
-        setForm((f) => ({
-          ...f,
-          address: result.address ?? fallback,
-          latitude: result.latitude,
-          longitude: result.longitude,
-        }));
-        setAddressError(null);
-        setPermissionUi('none');
-        if (result.address) show('Address filled from your current location.', 'success');
-        else show('Address lookup unavailable (offline?). Coordinates were used instead; you can edit them.', 'info');
-        break;
-      }
-      case 'permissionDenied':
-        setPermissionUi(result.canAskAgain ? 'denied' : 'blocked');
-        show('Location permission denied. You can still type the address yourself.', 'info');
-        break;
-      case 'servicesDisabled':
-        show('Location is turned off on this phone. Turn it on or type the address.', 'info');
-        break;
-      case 'error':
-        show(`Could not get your location (${result.message}). Please type the address.`, 'error');
-        break;
-    }
-  };
+  // Prefill from map "Contribute" (place hold → place card).
+  useEffect(() => {
+    const address = typeof params.address === 'string' ? params.address.trim() : '';
+    if (!address) return;
+    const latitude = params.latitude != null ? Number(params.latitude) : NaN;
+    const longitude = params.longitude != null ? Number(params.longitude) : NaN;
+    setForm({
+      editingId: null,
+      address,
+      latitude: Number.isFinite(latitude) ? latitude : null,
+      longitude: Number.isFinite(longitude) ? longitude : null,
+      ratings: emptyRatings(),
+      comment: '',
+    });
+    show(`Place filled from the map: ${address}`, 'info');
+    // Only react to incoming map params, not every form edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.address, params.latitude, params.longitude]);
 
-  // ---- Create / edit / delete -------------------------------------------------------------------
   const resultMessage = (r: SyncResult, done: string, offline: string): [string, MessageKind] => {
     if (r.kind === 'allSynced') return [done, 'success'];
     if (r.kind === 'offline') return [offline, 'info'];
@@ -128,8 +110,7 @@ export default function ContributeScreen() {
 
   const onSubmit = async () => {
     if (!form.address.trim()) {
-      setAddressError('Address is required.');
-      show('Address is required.', 'error');
+      show('Select the place from map and press Contribute.', 'error');
       return;
     }
     if (saving) return;
@@ -144,9 +125,7 @@ export default function ContributeScreen() {
       comment: form.comment,
       authorName: displayName(preferences) || user?.email || 'Anonymous',
     });
-    // The data is already on the phone at this point, so the form can be cleared.
     setForm(emptyForm());
-    setPermissionUi('none');
     const result = await promise;
     setSaving(false);
     show(
@@ -160,7 +139,6 @@ export default function ContributeScreen() {
 
   const onCancel = () => {
     setForm(emptyForm());
-    setAddressError(null);
     show('Changes discarded.', 'info');
   };
 
@@ -173,7 +151,6 @@ export default function ContributeScreen() {
       ratings: { ...emptyRatings(), ...item.ratings },
       comment: item.comment,
     });
-    setAddressError(null);
     show(`Editing "${item.address}".`, 'info');
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
@@ -210,6 +187,7 @@ export default function ContributeScreen() {
   };
 
   const isEditing = form.editingId !== null;
+  const hasPlace = form.address.trim().length > 0;
 
   return (
     <KeyboardAvoidingView
@@ -230,7 +208,6 @@ export default function ContributeScreen() {
             Rate how accessible a place is to help other travellers.
           </ThemedText>
 
-          {/* ---- Connection / sync status -------------------------------------------------- */}
           {isOnline === false ? (
             <MessageBanner
               message={{
@@ -239,88 +216,61 @@ export default function ContributeScreen() {
               }}
             />
           ) : null}
-          {preferences.simulateServerFailure ? (
-            <MessageBanner
-              message={{ kind: 'error', text: 'Demo: "Simulate server failure" is ON (MOCK server returns HTTP 503).' }}
-            />
-          ) : null}
           {message ? <MessageBanner message={message} onDismiss={() => setMessage(null)} /> : null}
 
-          {/* ---- Form ---------------------------------------------------------------------- */}
           <SectionTitle>{isEditing ? 'Edit place' : 'Add a place'}</SectionTitle>
-          <Card>
-            <TextField
-              label="Address (required)"
-              value={form.address}
-              onChangeText={(address) => {
-                // Typing by hand invalidates GPS coordinates that belonged to another address.
-                setForm((f) => ({ ...f, address, latitude: null, longitude: null }));
-                setAddressError(null);
-              }}
-              error={addressError}
-              placeholder="Street, number, city"
-              autoComplete="street-address"
-            />
-            <Button
-              variant="secondary"
-              title={locating ? 'Finding your location…' : '📍 Use my current location'}
-              loading={locating}
-              onPress={onUseLocation}
-              accessibilityHint="Fills in the address using GPS"
-            />
-            {permissionUi !== 'none' ? (
-              <View style={styles.permissionBox}>
-                <ThemedText type="small" themeColor="textSecondary">
-                  {permissionUi === 'blocked'
-                    ? 'Location is blocked for this app. You can allow it in the phone settings, or type the address.'
-                    : 'Without location permission, please type the address above.'}
-                </ThemedText>
-                {permissionUi === 'blocked' ? (
-                  <Button variant="secondary" title="Open app settings" onPress={() => Linking.openSettings()} />
-                ) : null}
-              </View>
-            ) : null}
-
-            <RatingLegend />
-
-            {FEATURES.map((feature) => (
-              <ChipGroup
-                key={feature.key}
-                label={feature.label}
-                options={RATINGS}
-                value={form.ratings[feature.key]}
-                colorFor={(rating) => ratingColor(theme, rating)}
-                onChange={(rating) =>
-                  setForm((f) => ({ ...f, ratings: { ...f.ratings, [feature.key]: rating } }))
-                }
+          {!hasPlace ? (
+            <ThemedText themeColor="textSecondary">
+              Select the place from map and press Contribute.
+            </ThemedText>
+          ) : (
+            <Card>
+              <TextField
+                label="Place"
+                value={form.address}
+                editable={false}
+                selectTextOnFocus={false}
+                accessibilityHint="Selected from the map; not editable"
               />
-            ))}
 
-            <TextField
-              label="Comment (optional)"
-              value={form.comment}
-              onChangeText={(comment) => setForm((f) => ({ ...f, comment }))}
-              placeholder="For example: the lift is at the back entrance"
-              multiline
-              style={styles.comment}
-              textAlignVertical="top"
-            />
+              <RatingLegend />
 
-            <View style={styles.buttonRow}>
-              <View style={styles.flex}>
-                <Button
-                  title={isEditing ? 'Save changes' : 'Submit contribution'}
-                  onPress={onSubmit}
-                  loading={saving}
+              {FEATURES.map((feature) => (
+                <ChipGroup
+                  key={feature.key}
+                  label={feature.label}
+                  options={RATINGS}
+                  value={form.ratings[feature.key]}
+                  colorFor={(rating) => ratingColor(theme, rating)}
+                  onChange={(rating) =>
+                    setForm((f) => ({ ...f, ratings: { ...f.ratings, [feature.key]: rating } }))
+                  }
                 />
-              </View>
-              {isEditing || form.address || form.comment ? (
-                <Button variant="secondary" title="Cancel" onPress={onCancel} />
-              ) : null}
-            </View>
-          </Card>
+              ))}
 
-          {/* ---- My contributions ---------------------------------------------------------- */}
+              <TextField
+                label="Comment (optional)"
+                value={form.comment}
+                onChangeText={(comment) => setForm((f) => ({ ...f, comment }))}
+                placeholder="For example: the lift is at the back entrance"
+                multiline
+                style={styles.comment}
+                textAlignVertical="top"
+              />
+
+              <View style={styles.buttonRow}>
+                <View style={styles.flex}>
+                  <Button
+                    title={isEditing ? 'Save changes' : 'Submit contribution'}
+                    onPress={onSubmit}
+                    loading={saving}
+                  />
+                </View>
+                <Button variant="secondary" title="Cancel" onPress={onCancel} />
+              </View>
+            </Card>
+          )}
+
           <View style={styles.listHeader}>
             <SectionTitle>{`My contributions (${contributions.length})`}</SectionTitle>
             {pendingCount > 0 ? (
@@ -336,7 +286,7 @@ export default function ContributeScreen() {
           {!loaded ? <ActivityIndicator color={theme.primary} /> : null}
           {loaded && contributions.length === 0 ? (
             <ThemedText themeColor="textSecondary">
-              No contributions yet. Fill in the form above, or add TEST DATA from Settings → Demo.
+              No contributions yet. Select a place on the map to get started.
             </ThemedText>
           ) : null}
 
@@ -382,13 +332,6 @@ function ContributionCard({
         <ThemedText type="smallBold" style={[styles.flex, styles.address]}>
           {item.address}
         </ThemedText>
-        {item.isTestData ? (
-          <View style={[styles.badge, { borderColor: theme.danger }]}>
-            <ThemedText type="small" themeColor="danger">
-              TEST DATA
-            </ThemedText>
-          </View>
-        ) : null}
       </View>
       <ThemedText type="small" themeColor="textSecondary">
         by {item.authorName} · {new Date(item.updatedAt).toLocaleString()}
@@ -434,7 +377,6 @@ const styles = StyleSheet.create({
     maxWidth: MaxContentWidth,
     gap: Spacing.three,
   },
-  permissionBox: { gap: Spacing.two },
   comment: { minHeight: 96 },
   buttonRow: {
     flexDirection: 'row',
@@ -457,10 +399,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.two,
-  },
-  badge: {
-    borderWidth: 1.5,
-    borderRadius: Spacing.two,
-    paddingHorizontal: Spacing.two,
   },
 });

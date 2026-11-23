@@ -11,7 +11,6 @@ import {
   type ReactNode,
 } from 'react';
 
-import { usePreferences } from '@/context/preferences-context';
 import { mockSupabase } from '@/services/mock-supabase';
 import { checkOnline, isOnline } from '@/services/network';
 import { newId, type Contribution, type Ratings } from '@/types/contribution';
@@ -52,7 +51,6 @@ type ContributionsContextValue = {
   save: (input: ContributionInput) => Promise<SyncResult>;
   remove: (id: string) => Promise<SyncResult>;
   sync: () => Promise<SyncResult>;
-  addSampleData: () => Promise<SyncResult>;
 };
 
 const STORAGE_KEY = 'accessway.contributions.v1';
@@ -60,7 +58,6 @@ const STORAGE_KEY = 'accessway.contributions.v1';
 const ContributionsContext = createContext<ContributionsContextValue | null>(null);
 
 export function ContributionsProvider({ children }: { children: ReactNode }) {
-  const { preferences } = usePreferences();
   const [items, setItems] = useState<Contribution[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -68,8 +65,6 @@ export function ContributionsProvider({ children }: { children: ReactNode }) {
 
   // Refs give async code (sync loop) the latest values without stale closures.
   const itemsRef = useRef<Contribution[]>([]);
-  const simulateFailureRef = useRef(preferences.simulateServerFailure);
-  simulateFailureRef.current = preferences.simulateServerFailure;
   const queueRef = useRef<Promise<unknown>>(Promise.resolve());
 
   /** Updates the list in memory AND writes it to the phone's storage. */
@@ -97,7 +92,7 @@ export function ContributionsProvider({ children }: { children: ReactNode }) {
         if (!current || current.syncState === 'synced') continue;
         try {
           if (current.syncState === 'pendingUpload') {
-            const remoteId = await mockSupabase.upsert(current, simulateFailureRef.current);
+            const remoteId = await mockSupabase.upsert(current);
             commit((prev) =>
               prev.map((i) =>
                 i.id !== current.id
@@ -108,7 +103,7 @@ export function ContributionsProvider({ children }: { children: ReactNode }) {
               ),
             );
           } else {
-            if (current.remoteId) await mockSupabase.remove(current.remoteId, simulateFailureRef.current);
+            if (current.remoteId) await mockSupabase.remove(current.remoteId);
             commit((prev) => prev.filter((i) => i.id !== current.id));
           }
         } catch (e) {
@@ -206,54 +201,6 @@ export function ContributionsProvider({ children }: { children: ReactNode }) {
     [commit, sync],
   );
 
-  /** TEST DATA: two fictional places in Łódź for the demo, clearly labelled in the UI. */
-  const addSampleData = useCallback(() => {
-    const now = Date.now();
-    const base = {
-      authorName: 'Sample data',
-      createdAt: now,
-      updatedAt: now,
-      syncState: 'pendingUpload' as const,
-      remoteId: null,
-      lastSyncError: null,
-      isTestData: true,
-    };
-    const samples: Contribution[] = [
-      {
-        ...base,
-        id: newId(),
-        address: 'Piotrkowska 104, Łódź (fictional)',
-        latitude: 51.7592,
-        longitude: 19.458,
-        ratings: {
-          wheelchairEntrance: 'accessible',
-          elevators: 'accessible',
-          tactilePaving: 'undesirable',
-          stepFreeAccess: 'accessible',
-          brailleSigns: 'unknown',
-        },
-        comment: 'Fictional test entry for the demo.',
-      },
-      {
-        ...base,
-        id: newId(),
-        address: 'Manufaktura, Łódź (fictional)',
-        latitude: 51.7795,
-        longitude: 19.4475,
-        ratings: {
-          wheelchairEntrance: 'accessible',
-          elevators: 'priorBooking',
-          tactilePaving: 'unknown',
-          stepFreeAccess: 'accessible',
-          brailleSigns: 'undesirable',
-        },
-        comment: 'Fictional test entry for the demo.',
-      },
-    ];
-    commit((prev) => [...samples, ...prev]);
-    return sync();
-  }, [commit, sync]);
-
   const value = useMemo<ContributionsContextValue>(() => {
     const visible = items.filter((i) => i.syncState !== 'pendingDelete');
     return {
@@ -265,9 +212,8 @@ export function ContributionsProvider({ children }: { children: ReactNode }) {
       save,
       remove,
       sync,
-      addSampleData,
     };
-  }, [items, loaded, isSyncing, online, save, remove, sync, addSampleData]);
+  }, [items, loaded, isSyncing, online, save, remove, sync]);
 
   return <ContributionsContext.Provider value={value}>{children}</ContributionsContext.Provider>;
 }

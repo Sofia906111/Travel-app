@@ -5,7 +5,16 @@ import { usePreferences } from '@/context/preferences-context';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
-  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
+  type?:
+    | 'default'
+    | 'title'
+    | 'small'
+    | 'smallBold'
+    | 'heading'
+    | 'subtitle'
+    | 'link'
+    | 'linkPrimary'
+    | 'code';
   themeColor?: ThemeColor;
 };
 
@@ -46,6 +55,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 24,
     fontWeight: 500,
+  },
+  heading: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: 600,
   },
   title: {
     fontSize: 48,
