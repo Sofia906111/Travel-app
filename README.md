@@ -1,6 +1,10 @@
 # Overview
 AccessWay is an Android application designed to help people with reduced mobility and other accessibility needs to plan their visits to public places and tourist attractions. The application allows users to discover places on an interactive map and access practical information about their accessibility
 
+![Supabase](https://shields.io/badge/supabase-black?logo=supabase&style=for-the-badge)
+![Expo](https://shields.io/badge/Expo-000000?logo=Expo&style=for-the-badge)
+![React Native](https://shields.io/badge/React%20Native-000?&logo=React&style=for-the-badge)
+
 # Repository overview
 [`docs/`](docs) contains the documentation of both how the app was being develop thorought the course as well as the initial setup of the app in case of wanting to contribute towards the project.
 Additional, raw documentation can be found on [Notion](https://app.notion.com/p/Mobile-Systems-Project-3f794243be478092ac8add311ba9b071?source=copy_link) where each week we documented our progress.
