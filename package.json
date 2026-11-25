@@ -1,1 +1,14 @@
-{}
+{
+  "name": "travel-app",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "lint": "npm --prefix src run lint",
+    "lint:fix": "npm --prefix src run lint:fix",
+    "format": "npm --prefix src run format",
+    "format:check": "npm --prefix src run format:check"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
+  }
+}

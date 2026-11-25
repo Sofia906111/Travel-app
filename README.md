@@ -18,8 +18,8 @@ Additional, raw documentation can be found on [Notion](https://app.notion.com/p/
 2. Install dependencies
    ```bash
    git clone https://github.com/Sofia906111/Travel-app
-   cd src
    npm install
+   cd src
    ```
 
 3. Configure environment
@@ -41,7 +41,7 @@ Additional, raw documentation can be found on [Notion](https://app.notion.com/p/
    ```
 
 # Technologies
-- [Supabase](https://supabase.com/) - used for storing user data and contributions records
+- [Supabase](https://supabase.com/) - used for storing user data, authentication, authorization and contributions records
 - [Expo with React Native](https://expo.dev/) - the Android application development framework
 - [Figma](https://www.figma.com) - for prototyping the design of screens
 - [Notion](https://notion.com) - planning work, documenting progress and plans for the project development
