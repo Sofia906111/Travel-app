@@ -8,7 +8,14 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+
+import {
+  defaultMapFeatureFilters,
+  FEATURE_KEYS,
+  type MapFeatureFilters,
+} from '@/constants/accessibility';
 import { Themes } from '@/constants/theme';
+import type { FeatureKey } from '@/types';
 
 export const THEME_OPTIONS: readonly { value: Themes; label: string }[] = [
   { value: Themes.System, label: 'Same as phone' },
@@ -25,27 +32,47 @@ export const TEXT_SCALE_OPTIONS: readonly { value: number; label: string }[] = [
 ];
 
 export type UserPreferences = {
-  showWheelchairBadge: boolean;
+  mapFeatures: MapFeatureFilters;
   theme: Themes;
   textScale: number;
 };
 
 export const DEFAULT_PREFERENCES: UserPreferences = {
-  showWheelchairBadge: true,
+  mapFeatures: defaultMapFeatureFilters(),
   theme: Themes.System,
   textScale: 1,
 };
 
-const STORAGE_KEY = 'accessway.preferences.v1';
+const STORAGE_KEY = 'accessway.preferences.v2';
+
+function sanitizeMapFeatures(raw: unknown, legacyWheelchair?: boolean): MapFeatureFilters {
+  const filters = defaultMapFeatureFilters();
+  if (raw && typeof raw === 'object') {
+    const record = raw as Partial<Record<FeatureKey, unknown>>;
+    for (const key of FEATURE_KEYS) {
+      if (typeof record[key] === 'boolean') filters[key] = record[key];
+    }
+    return filters;
+  }
+  // Migrate old single "wheelchair badge" toggle into mobility features.
+  if (legacyWheelchair === false) {
+    filters.wheelchairEntrance = false;
+    filters.elevators = false;
+    filters.stepFreeAccess = false;
+  }
+  return filters;
+}
 
 function sanitize(raw: unknown): UserPreferences {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Partial<
-    Record<keyof UserPreferences, unknown>
+    Record<keyof UserPreferences | 'showWheelchairBadge', unknown>
   >;
   const d = DEFAULT_PREFERENCES;
   return {
-    showWheelchairBadge:
-      typeof r.showWheelchairBadge === 'boolean' ? r.showWheelchairBadge : d.showWheelchairBadge,
+    mapFeatures: sanitizeMapFeatures(
+      r.mapFeatures,
+      typeof r.showWheelchairBadge === 'boolean' ? r.showWheelchairBadge : undefined,
+    ),
     theme: THEME_OPTIONS.some((o) => o.value === r.theme) ? (r.theme as Themes) : d.theme,
     textScale: TEXT_SCALE_OPTIONS.some((o) => o.value === r.textScale)
       ? (r.textScale as number)
@@ -57,29 +84,39 @@ type PreferencesContextValue = {
   preferences: UserPreferences;
   loaded: boolean;
   update: (patch: Partial<UserPreferences>) => void;
+  setMapFeature: (key: FeatureKey, enabled: boolean) => void;
 };
 
 const PreferencesContext = createContext<PreferencesContextValue>({
   preferences: DEFAULT_PREFERENCES,
   loaded: false,
   update: () => {},
+  setMapFeature: () => {},
 });
 
 export function PreferencesProvider({ children }: { children: ReactNode }) {
   const [preferences, setPreferences] = useState<UserPreferences>(DEFAULT_PREFERENCES);
   const [loaded, setLoaded] = useState(false);
 
-  // 1. Read saved preferences once, when the app starts.
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((json) => {
-        if (json) setPreferences(sanitize(JSON.parse(json)));
-      })
-      .catch((e) => console.warn('Could not read preferences, using defaults', e))
-      .finally(() => setLoaded(true));
+    void (async () => {
+      try {
+        const json = await AsyncStorage.getItem(STORAGE_KEY);
+        if (json) {
+          setPreferences(sanitize(JSON.parse(json)));
+          return;
+        }
+        // One-time read of v1 prefs for migration.
+        const legacy = await AsyncStorage.getItem('accessway.preferences.v1');
+        if (legacy) setPreferences(sanitize(JSON.parse(legacy)));
+      } catch (e) {
+        console.warn('Could not read preferences, using defaults', e);
+      } finally {
+        setLoaded(true);
+      }
+    })();
   }, []);
 
-  // 2. Save every change (only after loading, so the defaults never overwrite saved data).
   useEffect(() => {
     if (!loaded) return;
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(preferences)).catch((e) =>
@@ -91,7 +128,17 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     setPreferences((prev) => ({ ...prev, ...patch }));
   }, []);
 
-  const value = useMemo(() => ({ preferences, loaded, update }), [preferences, loaded, update]);
+  const setMapFeature = useCallback((key: FeatureKey, enabled: boolean) => {
+    setPreferences((prev) => ({
+      ...prev,
+      mapFeatures: { ...prev.mapFeatures, [key]: enabled },
+    }));
+  }, []);
+
+  const value = useMemo(
+    () => ({ preferences, loaded, update, setMapFeature }),
+    [preferences, loaded, update, setMapFeature],
+  );
   return <PreferencesContext.Provider value={value}>{children}</PreferencesContext.Provider>;
 }
 

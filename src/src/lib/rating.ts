@@ -85,8 +85,13 @@ export function getModeForPlaceRatings(ratings: RatingVote[]): Ratings {
   return result;
 }
 
-export function overallAccessibilityRating(ratings: Ratings): RatingKey {
-  const votes = FEATURE_KEYS.map((key) => ratings[key]).filter((r) => r !== 'unknown');
+/** Worst relevant rating across the given features (defaults to all). */
+export function overallAccessibilityRating(
+  ratings: Ratings,
+  featureKeys: readonly FeatureKey[] = FEATURE_KEYS,
+): RatingKey {
+  const keys = featureKeys.length > 0 ? featureKeys : FEATURE_KEYS;
+  const votes = keys.map((key) => ratings[key]).filter((r) => r !== 'unknown');
   if (votes.includes('undesirable')) return 'undesirable';
   if (votes.includes('priorBooking')) return 'priorBooking';
   if (votes.includes('accessible')) return 'accessible';

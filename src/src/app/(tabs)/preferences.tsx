@@ -13,6 +13,7 @@ import {
 import { LabeledTextInput } from '@/components/labeled-text-input';
 import { ThemedText } from '@/components/ui/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { FEATURE_GROUPS, FEATURES } from '@/constants/accessibility';
 import { TEXT_SCALE_OPTIONS, THEME_OPTIONS, usePreferences } from '@/context/preferences-context';
 import { useAnnouncer } from '@/hooks/use-announcer';
 import { useTheme } from '@/hooks/use-theme';
@@ -20,7 +21,7 @@ import { logout } from '@/lib/user';
 import { useUser } from '@/lib/user-context';
 
 export default function PreferencesScreen() {
-  const { preferences: p, update } = usePreferences();
+  const { preferences: p, update, setMapFeature } = usePreferences();
   const { user, profile, loading, updateProfile } = useUser();
   const announce = useAnnouncer();
   const theme = useTheme();
@@ -131,14 +132,30 @@ export default function PreferencesScreen() {
         ) : null}
 
         <SectionTitle>Map preferences</SectionTitle>
-        <Card style={{ backgroundColor: theme.background }}>
-          <SettingSwitch
-            title="Show wheelchair-accessible places"
-            subtitle="Highlights places with a wheelchair badge on the map."
-            value={p.showWheelchairBadge}
-            onValueChange={(showWheelchairBadge) => update({ showWheelchairBadge })}
-          />
-        </Card>
+        <ThemedText type="small" themeColor="textSecondary">
+          Marker colours on the map only use the accessibility features you care about. Turn off
+          mobility features if you only need vision guidance, and the other way around.
+        </ThemedText>
+        {FEATURE_GROUPS.map((group) => (
+          <View key={group.id} style={styles.featureGroup}>
+            <ThemedText type="smallBold" themeColor="tabsColor">
+              {group.label}
+            </ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              {group.description}
+            </ThemedText>
+            <Card style={{ backgroundColor: theme.background }}>
+              {group.keys.map((key) => (
+                <SettingSwitch
+                  key={key}
+                  title={FEATURES[key]}
+                  value={p.mapFeatures[key]}
+                  onValueChange={(enabled) => setMapFeature(key, enabled)}
+                />
+              ))}
+            </Card>
+          </View>
+        ))}
 
         <SectionTitle>Accessibility</SectionTitle>
         <ThemedText type="smallBold" themeColor="tabsColor">
@@ -184,5 +201,8 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: MaxContentWidth,
     gap: Spacing.three,
+  },
+  featureGroup: {
+    gap: Spacing.two,
   },
 });

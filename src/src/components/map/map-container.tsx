@@ -3,15 +3,17 @@ import { StyleSheet, View } from 'react-native';
 import WebView from 'react-native-webview';
 
 import { ratingColor } from '@/components/rating-legend';
+import { enabledFeatureKeys } from '@/constants/accessibility';
 import { DEFAULT_CENTER, DEFAULT_ZOOM, MAP_TILES_URL } from '@/constants/map';
 import { useContributions } from '@/context/contributions-context';
+import { usePreferences } from '@/context/preferences-context';
 import { useSelectedPlace } from '@/hooks/use-selected-place';
 import { useTheme, useThemeName } from '@/hooks/use-theme';
 import {
+  emptyRatings,
   getContributedPlaces,
   getRatingsByPlaceOsmIds,
   overallAccessibilityRating,
-  emptyRatings,
 } from '@/lib/rating';
 
 import { MAP_HTML } from './map-html';
@@ -36,6 +38,8 @@ export default function MapContainer({
   const theme = useTheme();
   const themeName = useThemeName();
   const tilesUrl = MAP_TILES_URL[themeName];
+  const { preferences } = usePreferences();
+  const mapFeatureKeys = enabledFeatureKeys(preferences.mapFeatures);
   const { contributions } = useContributions();
   // Extra props generic must be non-undefined or WebView props collapse to `never`
   // (react-native-webview#3970). `object` satisfies the empty-object lint rule.
@@ -92,7 +96,7 @@ export default function MapContainer({
         title: p.label?.trim() || `OSM ${p.osmId}`,
         fillColor: ratingColor(
           theme,
-          overallAccessibilityRating(ratingsByPlace.get(p.osmId) ?? emptyRatings()),
+          overallAccessibilityRating(ratingsByPlace.get(p.osmId) ?? emptyRatings(), mapFeatureKeys),
         ),
       }));
       console.log('contribution markers', items.length);
@@ -100,7 +104,7 @@ export default function MapContainer({
     } catch (error) {
       console.log('load contribution markers failed', error);
     }
-  }, [callMap, theme]);
+  }, [callMap, theme, mapFeatureKeys]);
 
   useEffect(() => {
     if (mapReady) void loadContributionMarkers();
