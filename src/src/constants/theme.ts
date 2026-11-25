@@ -44,7 +44,6 @@ export const Colors = {
     ratingWarn: '#F5C542',
     ratingBad: '#EF5350',
   },
-  /** Yellow on black, the usual high contrast scheme for low-vision users. */
   highContrast: {
     text: '#ffffff',
     background: '#000000',
