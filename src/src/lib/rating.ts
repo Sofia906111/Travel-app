@@ -1,27 +1,16 @@
-import {
-  FEATURES,
-  emptyRatings,
-  ratingsFromRows,
-  type Contribution,
-  type FeatureKey,
-  type RatingKey,
-  type Ratings,
-} from '@/types/contribution';
+import { FEATURE_KEYS, RATINGS } from '@/constants/accessibility';
+import type {
+  Contribution,
+  FeatureKey,
+  PlaceLocation,
+  PlaceRow,
+  RatingKey,
+  Ratings,
+} from '@/types';
 
 import { supabase } from './supabase';
 
-export type PlaceLocation = {
-  lat: number;
-  lng: number;
-  label?: string;
-};
-
-export type PlaceRow = {
-  osmId: number;
-  lat: number;
-  lng: number;
-  label: string | null;
-};
+export type { PlaceLocation, PlaceRow } from '@/types';
 
 export interface Rating {
   id: string;
@@ -30,6 +19,32 @@ export interface Rating {
   feature: FeatureKey;
   placeOsmId: number;
   authUID: string;
+}
+
+export function isFeatureKey(value: string): value is FeatureKey {
+  return (FEATURE_KEYS as string[]).includes(value);
+}
+
+export function isRatingKey(value: string): value is RatingKey {
+  return value in RATINGS;
+}
+
+export function emptyRatings(): Ratings {
+  return Object.fromEntries(FEATURE_KEYS.map((key) => [key, 'unknown'])) as Ratings;
+}
+
+export function ratingLabel(key: RatingKey): string {
+  return RATINGS[key];
+}
+
+export function ratingsFromRows(rows: { feature: string; rating: string }[]): Ratings {
+  const result = emptyRatings();
+  for (const row of rows) {
+    if (isFeatureKey(row.feature) && isRatingKey(row.rating)) {
+      result[row.feature] = row.rating;
+    }
+  }
+  return result;
 }
 
 function modeForVotes(votes: RatingKey[]): RatingKey {
@@ -51,7 +66,9 @@ function modeForVotes(votes: RatingKey[]): RatingKey {
   return mode;
 }
 
-export function getModeForPlaceRatings(ratings: Rating[]): Ratings {
+type RatingVote = Pick<Rating, 'feature' | 'rating'>;
+
+export function getModeForPlaceRatings(ratings: RatingVote[]): Ratings {
   const votesByFeature = new Map<FeatureKey, RatingKey[]>();
 
   for (const row of ratings) {
@@ -62,15 +79,14 @@ export function getModeForPlaceRatings(ratings: Rating[]): Ratings {
   }
 
   const result = emptyRatings();
-  for (const { key } of FEATURES) {
+  for (const key of FEATURE_KEYS) {
     result[key] = modeForVotes(votesByFeature.get(key) ?? []);
   }
   return result;
 }
 
-/** Worst non-unknown feature wins: red > yellow > green. */
 export function overallAccessibilityRating(ratings: Ratings): RatingKey {
-  const votes = FEATURES.map((f) => ratings[f.key]).filter((r) => r !== 'unknown');
+  const votes = FEATURE_KEYS.map((key) => ratings[key]).filter((r) => r !== 'unknown');
   if (votes.includes('undesirable')) return 'undesirable';
   if (votes.includes('priorBooking')) return 'priorBooking';
   if (votes.includes('accessible')) return 'accessible';
@@ -78,10 +94,7 @@ export function overallAccessibilityRating(ratings: Ratings): RatingKey {
 }
 
 export async function getRatingsForPlace(placeOsmId: number): Promise<Rating[] | null> {
-  const { data, error } = await supabase
-    .from('rating')
-    .select('*')
-    .eq('placeOsmId', placeOsmId);
+  const { data, error } = await supabase.from('rating').select('*').eq('placeOsmId', placeOsmId);
   if (error) {
     throw error;
   }
@@ -118,17 +131,18 @@ export async function getRatingsByPlaceOsmIds(
     throw error;
   }
 
-  const rowsByPlace = new Map<number, Rating[]>();
+  const rowsByPlace = new Map<number, RatingVote[]>();
   for (const row of data ?? []) {
-    const osmId = Number(row.placeOsmId);
-    if (!Number.isFinite(osmId)) continue;
-    const list = rowsByPlace.get(osmId) ?? [];
-    list.push(row as Rating);
-    rowsByPlace.set(osmId, list);
+    const list = rowsByPlace.get(row.placeOsmId) ?? [];
+    list.push({
+      feature: row.feature as FeatureKey,
+      rating: row.rating as RatingKey,
+    });
+    rowsByPlace.set(row.placeOsmId, list);
   }
 
-  for (const [osmId, rows] of rowsByPlace) {
-    result.set(osmId, getModeForPlaceRatings(rows));
+  for (const [placeOsmId, rows] of rowsByPlace) {
+    result.set(placeOsmId, getModeForPlaceRatings(rows));
   }
   return result;
 }
@@ -199,7 +213,7 @@ export async function addRating(
     label: location.label,
   });
 
-  const rows = FEATURES.map(({ key }) => ({
+  const rows = FEATURE_KEYS.map((key) => ({
     authUID: user.id,
     placeOsmId,
     feature: key,
@@ -227,7 +241,7 @@ export async function getMyContributions(authUID: string): Promise<Contribution[
 
   const byPlace = new Map<
     number,
-    { rows: Array<{ feature: string; rating: string }>; createdAt: number; updatedAt: number }
+    { rows: { feature: string; rating: string }[]; createdAt: number; updatedAt: number }
   >();
 
   for (const row of ratingRows) {

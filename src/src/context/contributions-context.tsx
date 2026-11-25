@@ -10,7 +10,7 @@ import {
 
 import { deleteMyRatingsForPlace, getMyContributions } from '@/lib/rating';
 import { useUser } from '@/lib/user-context';
-import type { Contribution } from '@/types/contribution';
+import type { Contribution } from '@/types';
 
 type ContributionsContextValue = {
   contributions: Contribution[];
@@ -39,8 +39,7 @@ export function ContributionsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    setLoaded(false);
-    (async () => {
+    void (async () => {
       try {
         if (!user) {
           if (!cancelled) {
@@ -50,26 +49,27 @@ export function ContributionsProvider({ children }: { children: ReactNode }) {
           return;
         }
         const next = await getMyContributions(user.id);
-        if (!cancelled) setItems(next);
+        if (!cancelled) {
+          setItems(next);
+          setLoaded(true);
+        }
       } catch (error) {
         console.log('load contributions failed', error);
-        if (!cancelled) setItems([]);
-      } finally {
-        if (!cancelled) setLoaded(true);
+        if (!cancelled) {
+          setItems([]);
+          setLoaded(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user]);
 
-  const remove = useCallback(
-    async (osmId: number) => {
-      await deleteMyRatingsForPlace(osmId);
-      setItems((prev) => prev.filter((item) => item.osmId !== osmId));
-    },
-    [],
-  );
+  const remove = useCallback(async (osmId: number) => {
+    await deleteMyRatingsForPlace(osmId);
+    setItems((prev) => prev.filter((item) => item.osmId !== osmId));
+  }, []);
 
   const value = useMemo<ContributionsContextValue>(
     () => ({

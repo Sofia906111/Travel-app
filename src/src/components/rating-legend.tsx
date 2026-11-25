@@ -1,9 +1,10 @@
 import { StyleSheet, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
+import { ThemedText } from '@/components/ui/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
-import { RATINGS, type RatingKey } from '@/types/contribution';
+import { RATING_KEYS, RATINGS } from '@/constants/accessibility';
+import type { RatingKey } from '@/types';
 
 type Theme = ReturnType<typeof useTheme>;
 
@@ -21,19 +22,23 @@ export function ratingColor(theme: Theme, rating: RatingKey): string {
   }
 }
 
-const LEGEND_ITEMS = RATINGS.filter((r) => r.key !== 'unknown');
-
+const LEGEND_KEYS = RATING_KEYS.filter((key) => key !== 'unknown');
 
 export function RatingLegend() {
   const theme = useTheme();
-  const spoken = 'Color legend: ' + LEGEND_ITEMS.map((r) => r.label).join(', ');
+  const spoken = 'Color legend: ' + LEGEND_KEYS.map((key) => RATINGS[key]).join(', ');
   return (
     <View style={styles.row} accessible accessibilityLabel={spoken}>
-      {LEGEND_ITEMS.map((item) => (
-        <View key={item.key} style={styles.item}>
-          <View style={[styles.dot, { backgroundColor: ratingColor(theme, item.key), borderColor: theme.border }]} />
+      {LEGEND_KEYS.map((key) => (
+        <View key={key} style={styles.item}>
+          <View
+            style={[
+              styles.dot,
+              { backgroundColor: ratingColor(theme, key), borderColor: theme.border },
+            ]}
+          />
           <ThemedText type="small" style={styles.label}>
-            {item.label}
+            {RATINGS[key]}
           </ThemedText>
         </View>
       ))}
@@ -46,7 +51,12 @@ export function RatingDot({ rating, size = 12 }: { rating: RatingKey; size?: num
   const theme = useTheme();
   return (
     <View
-      style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: ratingColor(theme, rating) }}
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        backgroundColor: ratingColor(theme, rating),
+      }}
       importantForAccessibility="no"
       accessibilityElementsHidden
     />

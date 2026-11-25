@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,9 +9,9 @@ import {
   RadioGroup,
   SectionTitle,
   SettingSwitch,
-} from '@/components/form-controls';
+} from '@/components/ui/form-controls';
 import { LabeledTextInput } from '@/components/labeled-text-input';
-import { ThemedText } from '@/components/themed-text';
+import { ThemedText } from '@/components/ui/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { TEXT_SCALE_OPTIONS, THEME_OPTIONS, usePreferences } from '@/context/preferences-context';
 import { useAnnouncer } from '@/hooks/use-announcer';
@@ -26,15 +26,17 @@ export default function PreferencesScreen() {
   const theme = useTheme();
   const insets = useSafeAreaInsets();
 
-  const [name, setName] = useState('');
-  const [surname, setSurname] = useState('');
+  const [name, setName] = useState(profile?.name ?? '');
+  const [surname, setSurname] = useState(profile?.surname ?? '');
+  const [profileRef, setProfileRef] = useState(profile);
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
 
-  useEffect(() => {
+  if (profile !== profileRef) {
+    setProfileRef(profile);
     setName(profile?.name ?? '');
     setSurname(profile?.surname ?? '');
-  }, [profile]);
+  }
 
   async function onSaveProfile() {
     setSavingProfile(true);
@@ -56,9 +58,13 @@ export default function PreferencesScreen() {
       style={{ backgroundColor: theme.background }}
       contentContainerStyle={[
         styles.content,
-        { paddingTop: insets.top + Spacing.three, paddingBottom: insets.bottom + BottomTabInset + Spacing.four },
+        {
+          paddingTop: insets.top + Spacing.three,
+          paddingBottom: insets.bottom + BottomTabInset + Spacing.four,
+        },
       ]}
-      keyboardShouldPersistTaps="handled">
+      keyboardShouldPersistTaps="handled"
+    >
       <View style={styles.inner}>
         <ThemedText type="subtitle" accessibilityRole="header">
           Settings
@@ -69,7 +75,9 @@ export default function PreferencesScreen() {
 
         <SectionTitle>Account</SectionTitle>
         <Card style={{ backgroundColor: theme.background }}>
-          <ThemedText>{loading ? 'Loading account…' : user ? user.email : 'Not signed in'}</ThemedText>
+          <ThemedText>
+            {loading ? 'Loading account…' : user ? user.email : 'Not signed in'}
+          </ThemedText>
           {!user ? (
             <Button title="Sign in" onPress={() => router.push('/auth')} />
           ) : (
@@ -133,7 +141,9 @@ export default function PreferencesScreen() {
         </Card>
 
         <SectionTitle>Accessibility</SectionTitle>
-        <ThemedText type="smallBold">Theme</ThemedText>
+        <ThemedText type="smallBold" themeColor="tabsColor">
+          Theme
+        </ThemedText>
         <Card style={{ backgroundColor: theme.background }}>
           <RadioGroup
             label="Theme"
@@ -146,7 +156,9 @@ export default function PreferencesScreen() {
           />
         </Card>
 
-        <ThemedText type="smallBold">Text size</ThemedText>
+        <ThemedText type="smallBold" themeColor="tabsColor">
+          Text size
+        </ThemedText>
         <Card style={{ backgroundColor: theme.background }}>
           <RadioGroup
             label="Text size"

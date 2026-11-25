@@ -18,10 +18,6 @@ export type ThemedTextProps = TextProps & {
   themeColor?: ThemeColor;
 };
 
-/**
- * Text that follows the theme colours and the "Text scaling" preference
- * (on top of the phone's own font size setting).
- */
 export function ThemedText({ style, type = 'default', themeColor, ...rest }: ThemedTextProps) {
   const theme = useTheme();
   const scale = usePreferences().preferences.textScale;

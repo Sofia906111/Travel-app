@@ -4,8 +4,8 @@ import { Platform, ScrollView, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LabeledTextInput } from '@/components/labeled-text-input';
-import { RoundedButton } from '@/components/rounded-button';
-import { ThemedView } from '@/components/themed-view';
+import { Button } from '@/components/ui/form-controls';
+import { ThemedView } from '@/components/ui/themed-view';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { usePreferences } from '@/context/preferences-context';
 import { useTheme } from '@/hooks/use-theme';
@@ -58,7 +58,12 @@ function validateAuthForm(
 
   return {
     errors,
-    isValid: !errors.email && !errors.password && !errors.confirmPassword && !errors.name && !errors.surname,
+    isValid:
+      !errors.email &&
+      !errors.password &&
+      !errors.confirmPassword &&
+      !errors.name &&
+      !errors.surname,
   };
 }
 
@@ -171,7 +176,8 @@ export default function AuthScreen() {
       <ScrollView
         style={[styles.scrollView, { backgroundColor: theme.background }]}
         contentInset={insets}
-        contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
+        contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}
+      >
         <ThemedView style={styles.container}>
           <Text style={styles.title}>{isLoginMode ? 'Sign in' : 'Register'}</Text>
           <LabeledTextInput
@@ -249,14 +255,11 @@ export default function AuthScreen() {
             <Text style={[styles.info, { color: theme.tabsColor }]}>{infoMessage}</Text>
           ) : null}
 
-          <RoundedButton
-            title={isLoginMode ? 'Sign in' : 'Register'}
-            onPress={onSubmit}
-          />
+          <Button title={isLoginMode ? 'Sign in' : 'Register'} onPress={onSubmit} />
           <Text style={{ marginHorizontal: 'auto', fontSize: 14 }}>
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
           </Text>
-          <RoundedButton
+          <Button
             variant="secondary"
             title={isLoginMode ? 'Create an account' : 'Sign In'}
             onPress={() => setIsLoginMode(!isLoginMode)}

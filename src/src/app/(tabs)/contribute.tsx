@@ -1,5 +1,5 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState, type ComponentRef } from 'react';
+import { useRef, useState, type ComponentRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,23 +19,19 @@ import {
   SectionTitle,
   type MessageKind,
   type UiMessage,
-} from '@/components/form-controls';
+} from '@/components/ui/form-controls';
 import { RatingDot, RatingLegend, ratingColor } from '@/components/rating-legend';
-import { ThemedText } from '@/components/themed-text';
+import { ThemedText } from '@/components/ui/themed-text';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 import { useContributions } from '@/context/contributions-context';
 import { useAnnouncer } from '@/hooks/use-announcer';
 import { useTheme } from '@/hooks/use-theme';
-import { addRating } from '@/lib/rating';
+import { addRating, emptyRatings, ratingLabel } from '@/lib/rating';
 import { useUser } from '@/lib/user-context';
-import {
-  emptyRatings,
-  FEATURES,
-  RATINGS,
-  ratingLabel,
-  type Contribution,
-  type Ratings,
-} from '@/types/contribution';
+import { FEATURE_KEYS, FEATURES, RATING_KEYS, RATINGS } from '@/constants/accessibility';
+import type { Contribution, Ratings } from '@/types';
+
+const RATING_OPTIONS = RATING_KEYS.map((key) => ({ key, label: RATINGS[key] }));
 
 type FormState = {
   editingId: string | null;
@@ -90,6 +86,7 @@ export default function ContributeScreen() {
 
   const scrollRef = useRef<ComponentRef<typeof ScrollView>>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
+  const [paramsSignature, setParamsSignature] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<UiMessage | null>(null);
 
@@ -98,36 +95,8 @@ export default function ContributeScreen() {
     announce(text);
   };
 
-  useEffect(() => {
-    const address = typeof params.address === 'string' ? params.address.trim() : '';
-    if (!address) return;
-    const placeName =
-      typeof params.name === 'string' && params.name.trim() ? params.name.trim() : address;
-    const placeAddress =
-      typeof params.addressLine === 'string' ? params.addressLine.trim() : '';
-    const placeKind = formatPlaceKind(
-      typeof params.featureType === 'string' ? params.featureType : undefined,
-      typeof params.featureClass === 'string' ? params.featureClass : undefined,
-    );
-    const latitude = params.latitude != null ? Number(params.latitude) : NaN;
-    const longitude = params.longitude != null ? Number(params.longitude) : NaN;
-    const osmId = params.osmId != null ? Number(params.osmId) : NaN;
-    const osmType =
-      typeof params.osmType === 'string' && params.osmType.trim() ? params.osmType.trim() : null;
-    setForm({
-      editingId: null,
-      address,
-      placeName,
-      placeAddress,
-      placeKind,
-      osmId: Number.isFinite(osmId) ? osmId : null,
-      osmType,
-      latitude: Number.isFinite(latitude) ? latitude : null,
-      longitude: Number.isFinite(longitude) ? longitude : null,
-      ratings: emptyRatings(),
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
+  // Adjust form when route params change (React-recommended alternative to syncing in an effect).
+  const nextSignature = [
     params.address,
     params.name,
     params.addressLine,
@@ -137,7 +106,37 @@ export default function ContributeScreen() {
     params.osmType,
     params.latitude,
     params.longitude,
-  ]);
+  ].join('|');
+  if (nextSignature !== paramsSignature) {
+    setParamsSignature(nextSignature);
+    const address = typeof params.address === 'string' ? params.address.trim() : '';
+    if (address) {
+      const placeName =
+        typeof params.name === 'string' && params.name.trim() ? params.name.trim() : address;
+      const placeAddress = typeof params.addressLine === 'string' ? params.addressLine.trim() : '';
+      const placeKind = formatPlaceKind(
+        typeof params.featureType === 'string' ? params.featureType : undefined,
+        typeof params.featureClass === 'string' ? params.featureClass : undefined,
+      );
+      const latitude = params.latitude != null ? Number(params.latitude) : NaN;
+      const longitude = params.longitude != null ? Number(params.longitude) : NaN;
+      const osmId = params.osmId != null ? Number(params.osmId) : NaN;
+      const osmType =
+        typeof params.osmType === 'string' && params.osmType.trim() ? params.osmType.trim() : null;
+      setForm({
+        editingId: null,
+        address,
+        placeName,
+        placeAddress,
+        placeKind,
+        osmId: Number.isFinite(osmId) ? osmId : null,
+        osmType,
+        latitude: Number.isFinite(latitude) ? latitude : null,
+        longitude: Number.isFinite(longitude) ? longitude : null,
+        ratings: emptyRatings(),
+      });
+    }
+  }
 
   const onSubmit = async () => {
     if (!form.address.trim()) {
@@ -165,10 +164,7 @@ export default function ContributeScreen() {
       });
       await refresh();
       setForm(emptyForm());
-      show(
-        wasEditing ? 'Changes saved.' : 'Contribution saved. Thank you!',
-        'success',
-      );
+      show(wasEditing ? 'Changes saved.' : 'Contribution saved. Thank you!', 'success');
     } catch (error) {
       console.log('addRating failed', error);
       show('Could not save rating to the server.', 'error');
@@ -227,14 +223,19 @@ export default function ContributeScreen() {
   return (
     <KeyboardAvoidingView
       style={[styles.flex, { backgroundColor: theme.background }]}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={[
           styles.content,
-          { paddingTop: insets.top + Spacing.three, paddingBottom: insets.bottom + BottomTabInset + Spacing.four },
+          {
+            paddingTop: insets.top + Spacing.three,
+            paddingBottom: insets.bottom + BottomTabInset + Spacing.four,
+          },
         ]}
-        keyboardShouldPersistTaps="handled">
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.inner}>
           <ThemedText type="subtitle" accessibilityRole="header">
             Contribute
@@ -249,9 +250,7 @@ export default function ContributeScreen() {
           {userLoading ? (
             <ActivityIndicator color={theme.primary} />
           ) : !user ? (
-            <ThemedText themeColor="textSecondary">
-              Sign in to contribute to AccessWay.
-            </ThemedText>
+            <ThemedText themeColor="textSecondary">Sign in to contribute to AccessWay.</ThemedText>
           ) : !hasPlace ? (
             <ThemedText themeColor="textSecondary">
               Select the place from map and press Contribute.
@@ -260,11 +259,7 @@ export default function ContributeScreen() {
             <Card>
               <View
                 accessible
-                accessibilityLabel={[
-                  form.placeName,
-                  form.placeKind,
-                  form.placeAddress,
-                ]
+                accessibilityLabel={[form.placeName, form.placeKind, form.placeAddress]
                   .filter(Boolean)
                   .join(', ')}
                 style={styles.placeSummary}
@@ -286,15 +281,18 @@ export default function ContributeScreen() {
 
               <RatingLegend />
 
-              {FEATURES.map((feature) => (
+              {FEATURE_KEYS.map((featureKey) => (
                 <ChipGroup
-                  key={feature.key}
-                  label={feature.label}
-                  options={RATINGS}
-                  value={form.ratings[feature.key]}
+                  key={featureKey}
+                  label={FEATURES[featureKey]}
+                  options={RATING_OPTIONS}
+                  value={form.ratings[featureKey]}
                   colorFor={(rating) => ratingColor(theme, rating)}
                   onChange={(rating) =>
-                    setForm((f) => ({ ...f, ratings: { ...f.ratings, [feature.key]: rating } }))
+                    setForm((f) => ({
+                      ...f,
+                      ratings: { ...f.ratings, [featureKey]: rating },
+                    }))
                   }
                 />
               ))}
@@ -344,8 +342,8 @@ function ContributionCard({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const rated = FEATURES.filter((f) => item.ratings[f.key] && item.ratings[f.key] !== 'unknown');
-  const missing = FEATURES.length - rated.length;
+  const rated = FEATURE_KEYS.filter((key) => item.ratings[key] && item.ratings[key] !== 'unknown');
+  const missing = FEATURE_KEYS.length - rated.length;
 
   return (
     <Card>
@@ -359,11 +357,11 @@ function ContributionCard({
       </ThemedText>
 
       <View>
-        {rated.map((f) => (
-          <View key={f.key} style={styles.ratingRow}>
-            <RatingDot rating={item.ratings[f.key]} />
+        {rated.map((key) => (
+          <View key={key} style={styles.ratingRow}>
+            <RatingDot rating={item.ratings[key]} />
             <ThemedText type="small" style={styles.flex}>
-              {f.label}: {ratingLabel(item.ratings[f.key])}
+              {FEATURES[key]}: {ratingLabel(item.ratings[key])}
             </ThemedText>
           </View>
         ))}
@@ -375,8 +373,18 @@ function ContributionCard({
       </View>
 
       <View style={styles.buttonRow}>
-        <Button variant="secondary" title="Edit" onPress={onEdit} accessibilityHint={`Edit ${item.address}`} />
-        <Button variant="danger" title="Delete" onPress={onDelete} accessibilityHint={`Delete ${item.address}`} />
+        <Button
+          variant="secondary"
+          title="Edit"
+          onPress={onEdit}
+          accessibilityHint={`Edit ${item.address}`}
+        />
+        <Button
+          variant="danger"
+          title="Delete"
+          onPress={onDelete}
+          accessibilityHint={`Delete ${item.address}`}
+        />
       </View>
     </Card>
   );

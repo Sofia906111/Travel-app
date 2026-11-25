@@ -1,10 +1,8 @@
+import type { UserProfile } from '@/types/user';
+
 import { supabase } from './supabase';
 
-export type UserProfile = {
-  authUID: string;
-  name: string;
-  surname: string;
-};
+export type { UserProfile } from '@/types/user';
 
 export async function getUser() {
   const { data, error } = await supabase.auth.getUser();
@@ -88,12 +86,7 @@ export async function logout() {
   }
 }
 
-export async function register(
-  email: string,
-  password: string,
-  name: string,
-  surname: string,
-) {
+export async function register(email: string, password: string, name: string, surname: string) {
   const trimmedName = name.trim();
   const trimmedSurname = surname.trim();
 

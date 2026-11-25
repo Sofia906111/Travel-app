@@ -1,6 +1,6 @@
 import { StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
+import { ThemedText } from '@/components/ui/themed-text';
 import { Spacing } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
@@ -30,12 +30,14 @@ export function LabeledTextInput({
         accessibilityLabel={hasError ? `${label}, ${error}` : label}
         placeholderTextColor={placeholderTextColor ?? theme.textSecondary}
         underlineColorAndroid="transparent"
+        cursorColor={theme.primary}
+        selectionColor={theme.primary}
         style={[
           styles.input,
           {
-            backgroundColor: theme.backgroundSelected,
+            backgroundColor: theme.background,
             color: theme.text,
-            borderColor: hasError ? theme.danger : 'transparent',
+            borderColor: hasError ? theme.danger : theme.border,
             borderWidth: 2,
           },
           style,

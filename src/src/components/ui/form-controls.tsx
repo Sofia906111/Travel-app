@@ -11,19 +11,19 @@ import {
   type ViewStyle,
 } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { ThemedText } from '@/components/ui/themed-text';
+import { Spacing, Themes } from '@/constants/theme';
 import { usePreferences } from '@/context/preferences-context';
-import { useTheme } from '@/hooks/use-theme';
-
-/**
- * Small accessible building blocks shared by the Preferences and Contribute screens.
- * All touch targets are at least 48 dp high and expose a role + state to TalkBack.
- */
+import { useTheme, useThemeName } from '@/hooks/use-theme';
 
 export function SectionTitle({ children }: { children: string }) {
   return (
-    <ThemedText type="smallBold" themeColor="primary" accessibilityRole="header" style={styles.sectionTitle}>
+    <ThemedText
+      type="smallBold"
+      themeColor="tabsColor"
+      accessibilityRole="header"
+      style={styles.sectionTitle}
+    >
       {children}
     </ThemedText>
   );
@@ -32,13 +32,18 @@ export function SectionTitle({ children }: { children: string }) {
 export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const theme = useTheme();
   return (
-    <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }, style]}>
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: theme.backgroundElement, borderColor: theme.border },
+        style,
+      ]}
+    >
       {children}
     </View>
   );
 }
 
-/** A whole row that toggles a switch. TalkBack reads it as one element: "title, switch, on". */
 export function SettingSwitch({
   title,
   subtitle,
@@ -58,11 +63,12 @@ export function SettingSwitch({
       accessibilityState={{ checked: value }}
       accessibilityLabel={title}
       accessibilityHint={subtitle}
-      style={({ pressed }) => [styles.switchRow, pressed && styles.pressed]}>
+      style={({ pressed }) => [styles.switchRow, pressed && styles.pressed]}
+    >
       <View style={styles.flex}>
         <ThemedText>{title}</ThemedText>
         {subtitle ? (
-          <ThemedText type="small" themeColor="textSecondary">
+          <ThemedText type="small" themeColor="tabsColor">
             {subtitle}
           </ThemedText>
         ) : null}
@@ -79,7 +85,6 @@ export function SettingSwitch({
   );
 }
 
-/** Vertical list of radio buttons (theme, text size). */
 export function RadioGroup<T extends string | number>({
   label,
   options,
@@ -105,18 +110,49 @@ export function RadioGroup<T extends string | number>({
             accessibilityLabel={option.label}
             style={({ pressed }) => [
               styles.radioRow,
-              index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
+              index > 0 && {
+                borderTopWidth: StyleSheet.hairlineWidth,
+                borderTopColor: theme.border,
+              },
               pressed && styles.pressed,
-            ]}>
-            <View style={[styles.radioOuter, { borderColor: selected ? theme.primary : theme.textSecondary }]}>
-              {selected ? <View style={[styles.radioInner, { backgroundColor: theme.primary }]} /> : null}
+            ]}
+          >
+            <View
+              style={[
+                styles.radioOuter,
+                { borderColor: selected ? theme.primary : theme.textSecondary },
+              ]}
+            >
+              {selected ? (
+                <View style={[styles.radioInner, { backgroundColor: theme.primary }]} />
+              ) : null}
             </View>
-            <ThemedText style={styles.flex}>{option.label}</ThemedText>
+            <ThemedText style={styles.flex} themeColor={selected ? 'primary' : 'text'}>
+              {option.label}
+            </ThemedText>
           </Pressable>
         );
       })}
     </View>
   );
+}
+
+/** Black text on light fills, white on dark — keeps chip labels readable in high contrast. */
+function contrastOn(hex: string): string {
+  const raw = hex.replace('#', '');
+  const full =
+    raw.length === 3
+      ? raw
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : raw;
+  if (full.length < 6) return '#000000';
+  const r = parseInt(full.slice(0, 2), 16);
+  const g = parseInt(full.slice(2, 4), 16);
+  const b = parseInt(full.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? '#000000' : '#ffffff';
 }
 
 export function ChipGroup<T extends string>({
@@ -130,7 +166,6 @@ export function ChipGroup<T extends string>({
   options: readonly { key: T; label: string }[];
   value: T;
   onChange: (value: T) => void;
-  /** When set, selected chip uses this color (e.g. rating traffic lights). */
   colorFor?: (value: T) => string;
 }) {
   const theme = useTheme();
@@ -141,8 +176,7 @@ export function ChipGroup<T extends string>({
         {options.map((option) => {
           const selected = option.key === value;
           const tint = colorFor?.(option.key) ?? theme.primary;
-          // Yellow fill needs dark label text for contrast.
-          const onTint = option.key === 'priorBooking' ? '#000000' : '#ffffff';
+          const onTint = contrastOn(tint);
           return (
             <Pressable
               key={option.key}
@@ -157,7 +191,8 @@ export function ChipGroup<T extends string>({
                   backgroundColor: selected ? tint : theme.background,
                 },
                 pressed && styles.pressed,
-              ]}>
+              ]}
+            >
               <ThemedText type="small" style={{ color: selected ? onTint : theme.text }}>
                 {option.label}
               </ThemedText>
@@ -184,13 +219,15 @@ export function TextField({
         accessibilityLabel={label}
         accessibilityHint={error ?? undefined}
         placeholderTextColor={theme.textSecondary}
+        cursorColor={theme.primary}
+        selectionColor={theme.primary}
         style={[
           styles.input,
           {
             color: theme.text,
             backgroundColor: theme.background,
             borderColor: error ? theme.danger : theme.border,
-            borderWidth: error ? 2 : 1,
+            borderWidth: 2,
             fontSize: 16 * scale,
           },
           style,
@@ -199,7 +236,7 @@ export function TextField({
       />
       {error ? (
         <ThemedText type="small" themeColor="danger" accessibilityLiveRegion="polite">
-          ⚠ {error}
+          {error}
         </ThemedText>
       ) : null}
     </View>
@@ -222,7 +259,18 @@ export function Button({
   accessibilityHint?: string;
 }) {
   const theme = useTheme();
-  const color = variant === 'primary' ? theme.onPrimary : variant === 'danger' ? theme.danger : theme.primary;
+  const highContrast = useThemeName() === Themes.HighContrast;
+  // High contrast: never use outline buttons — solid fills only.
+  const palette =
+    variant === 'primary'
+      ? { backgroundColor: theme.primary, borderColor: theme.primary, color: theme.onPrimary }
+      : variant === 'danger'
+        ? highContrast
+          ? { backgroundColor: theme.danger, borderColor: theme.danger, color: '#000000' }
+          : { backgroundColor: 'transparent', borderColor: theme.danger, color: theme.danger }
+        : highContrast
+          ? { backgroundColor: theme.border, borderColor: theme.border, color: '#000000' }
+          : { backgroundColor: 'transparent', borderColor: theme.primary, color: theme.primary };
   const isDisabled = disabled || loading;
   return (
     <Pressable
@@ -234,14 +282,16 @@ export function Button({
       accessibilityHint={accessibilityHint}
       style={({ pressed }) => [
         styles.button,
-        variant === 'primary'
-          ? { backgroundColor: theme.primary, borderColor: theme.primary }
-          : { backgroundColor: 'transparent', borderColor: color },
+        {
+          backgroundColor: palette.backgroundColor,
+          borderColor: palette.borderColor,
+        },
         isDisabled && styles.disabled,
         pressed && styles.pressed,
-      ]}>
-      {loading ? <ActivityIndicator color={color} /> : null}
-      <ThemedText type="smallBold" style={{ color }}>
+      ]}
+    >
+      {loading ? <ActivityIndicator color={palette.color} /> : null}
+      <ThemedText type="smallBold" style={{ color: palette.color }}>
         {title}
       </ThemedText>
     </Pressable>
@@ -251,15 +301,26 @@ export function Button({
 export type MessageKind = 'success' | 'info' | 'error';
 export type UiMessage = { text: string; kind: MessageKind };
 
-/** Status message. `accessibilityLiveRegion` makes TalkBack read it as soon as it appears. */
-export function MessageBanner({ message, onDismiss }: { message: UiMessage; onDismiss?: () => void }) {
+export function MessageBanner({
+  message,
+  onDismiss,
+}: {
+  message: UiMessage;
+  onDismiss?: () => void;
+}) {
   const theme = useTheme();
-  const color = message.kind === 'success' ? theme.success : message.kind === 'error' ? theme.danger : theme.info;
+  const color =
+    message.kind === 'success'
+      ? theme.success
+      : message.kind === 'error'
+        ? theme.danger
+        : theme.info;
   const icon = message.kind === 'success' ? '✓' : message.kind === 'error' ? '⚠' : 'ℹ';
   return (
     <View
       accessibilityLiveRegion="polite"
-      style={[styles.banner, { borderColor: color, backgroundColor: theme.backgroundElement }]}>
+      style={[styles.banner, { borderColor: color, backgroundColor: theme.backgroundElement }]}
+    >
       <ThemedText style={[styles.flex, { color: theme.text }]}>
         <ThemedText style={{ color }}>{icon} </ThemedText>
         {message.text}
@@ -270,7 +331,8 @@ export function MessageBanner({ message, onDismiss }: { message: UiMessage; onDi
           accessibilityRole="button"
           accessibilityLabel="Dismiss message"
           hitSlop={8}
-          style={styles.dismiss}>
+          style={styles.dismiss}
+        >
           <ThemedText themeColor="textSecondary">✕</ThemedText>
         </Pressable>
       ) : null}
@@ -289,7 +351,7 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: Spacing.three,
-    borderWidth: StyleSheet.hairlineWidth,
+    borderWidth: 2,
     padding: Spacing.three,
     gap: Spacing.three,
   },

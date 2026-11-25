@@ -1,12 +1,5 @@
 import * as Location from 'expo-location';
 
-/**
- * MOBILE CAPABILITY: current GPS position + reverse geocoding (coordinates -> street address),
- * used to fill in the address of a contribution.
- *
- * Every failure returns a value instead of throwing, so the screen can always fall back to
- * typing the address by hand.
- */
 export type LocationResult =
   | { kind: 'success'; latitude: number; longitude: number; address: string | null }
   | { kind: 'permissionDenied'; canAskAgain: boolean }
@@ -38,7 +31,12 @@ export async function getCurrentLocation(): Promise<LocationResult> {
     if (!position) return { kind: 'error', message: 'no location fix' };
 
     const { latitude, longitude } = position.coords;
-    return { kind: 'success', latitude, longitude, address: await reverseGeocode(latitude, longitude) };
+    return {
+      kind: 'success',
+      latitude,
+      longitude,
+      address: await reverseGeocode(latitude, longitude),
+    };
   } catch (e) {
     return { kind: 'error', message: e instanceof Error ? e.message : 'location error' };
   }
@@ -47,7 +45,10 @@ export async function getCurrentLocation(): Promise<LocationResult> {
 /** Returns null when geocoding is unavailable (for example offline); the caller uses coordinates. */
 async function reverseGeocode(latitude: number, longitude: number): Promise<string | null> {
   try {
-    const [a] = await withTimeout(Location.reverseGeocodeAsync({ latitude, longitude }), TIMEOUT_MS);
+    const [a] = await withTimeout(
+      Location.reverseGeocodeAsync({ latitude, longitude }),
+      TIMEOUT_MS,
+    );
     if (!a) return null;
     if (a.formattedAddress) return a.formattedAddress;
     const street = [a.street, a.streetNumber].filter(Boolean).join(' ');

@@ -17,10 +17,14 @@ export default function AppTabs() {
     <NativeTabs
       backgroundColor={colors.background}
       indicatorColor={colors.backgroundElement}
-      iconColor={colors.tabsColor}
+      iconColor={{ default: colors.textSecondary, selected: colors.tabsColor }}
       rippleColor={`${colors.tabsColor}33`}
       labelVisibilityMode="labeled"
-      labelStyle={{ default: { color: colors.tabsColor }, selected: { fontSize: 13 } }}>
+      labelStyle={{
+        default: { color: colors.textSecondary },
+        selected: { color: colors.tabsColor, fontSize: 13 },
+      }}
+    >
       {paths.map((path) => (
         <NativeTabs.Trigger key={path.name} name={path.name}>
           <NativeTabs.Trigger.Label>{path.label}</NativeTabs.Trigger.Label>
