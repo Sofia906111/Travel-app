@@ -4,10 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { PLACE_FEATURE_CLASSES } from '@/constants/map';
 import {
   DROPPED_PIN,
-  formatPlaceAddress,
   loadingPlace,
   lookupByOsmId,
-  placeName,
   resolvedPlace,
   reverseGeocode,
   type PlacePreview,
@@ -87,22 +85,12 @@ export function useSelectedPlace({ showDroppedPin, clearDroppedPin }: PinHelpers
           return;
         }
 
-        const name =
-          placeName(lookedUp.label, lookedUp.address, lookedUp.featureClass) ??
-          lookedUp.label ??
-          input.title ??
-          `OSM ${input.osmId}`;
-        const address = formatPlaceAddress(lookedUp.address) ?? lookedUp.displayName ?? null;
-
-        showDroppedPin(lookedUp.latitude, lookedUp.longitude, name);
-        setPlace((current) => {
-          if (!current || current.id !== pinId) return current;
-          return {
-            ...resolvedPlace(current, lookedUp),
-            name,
-            address,
-          };
-        });
+        const next = resolvedPlace(
+          loadingPlace(pinId, lookedUp.latitude, lookedUp.longitude, lookedUp.osmId),
+          lookedUp,
+        );
+        showDroppedPin(next.latitude, next.longitude, next.name ?? undefined);
+        setPlace((current) => (current && current.id === pinId ? next : current));
       } catch (error) {
         console.log('nominatim lookup failed', error);
         setPlace((current) =>
@@ -170,9 +158,11 @@ export function useSelectedPlace({ showDroppedPin, clearDroppedPin }: PinHelpers
   const onContribute = useCallback(() => {
     if (!place || !canContribute) return;
     const name =
-      place.name && place.name !== DROPPED_PIN ? place.name : (place.address ?? 'Selected place');
-    const addressLine = place.address ?? '';
-    const address = addressLine && name !== addressLine ? `${name}, ${addressLine}` : name;
+      place.name && place.name !== DROPPED_PIN
+        ? place.name
+        : (place.displayName ?? 'Selected place');
+    const addressLine = place.displayName && place.displayName !== name ? place.displayName : '';
+    const address = addressLine ? `${name}, ${addressLine}` : name;
     router.push({
       pathname: '/contribute',
       params: {

@@ -1,6 +1,12 @@
 import type { MapEvent } from '@/types/map';
 
-export type { ContributionMarker, MapEvent, MapMarker } from '@/types/map';
+export type {
+  ContributionMarker,
+  MapCommand,
+  MapCommandArgs,
+  MapEvent,
+  MapMarker,
+} from '@/types/map';
 
 export function parseMapEvent(raw: string): MapEvent | null {
   let parsed: MapEvent;

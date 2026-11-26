@@ -78,9 +78,9 @@ export function PlaceCard({
                 <ThemedText type="heading" numberOfLines={2}>
                   {place.name ?? DROPPED_PIN}
                 </ThemedText>
-                {place.address ? (
+                {place.displayName && place.displayName !== place.name ? (
                   <ThemedText themeColor="textSecondary" numberOfLines={3}>
-                    {place.address}
+                    {place.displayName}
                   </ThemedText>
                 ) : null}
               </>

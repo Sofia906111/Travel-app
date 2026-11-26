@@ -15,51 +15,93 @@ import {
   getRatingsByPlaceOsmIds,
   overallAccessibilityRating,
 } from '@/lib/rating';
+import { getCurrentCoordinates } from '@/services/location';
 
 import { MAP_HTML } from './map-html';
-import { parseMapEvent, type ContributionMarker, type MapMarker } from './map-events';
+import {
+  parseMapEvent,
+  type ContributionMarker,
+  type MapCommand,
+  type MapCommandArgs,
+} from './map-events';
 import { PlaceCard } from './place-card';
+
+const USER_LOCATION_POLL_MS = 2000;
 
 type Props = {
   center?: { latitude: number; longitude: number };
   zoom?: number;
-  markers?: MapMarker[];
+  /** When set/changed, pan to `center` (e.g. search result). */
+  focusKey?: string | null;
 };
 
 // Module-level so the WebView source never changes identity (no reloads).
 const WEBVIEW_SOURCE = { html: MAP_HTML, baseUrl: 'https://localhost' };
-const EMPTY_MARKERS: MapMarker[] = [];
 
 export default function MapContainer({
   center = DEFAULT_CENTER,
   zoom = DEFAULT_ZOOM,
-  markers = EMPTY_MARKERS,
+  focusKey = null,
 }: Props) {
   const theme = useTheme();
   const themeName = useThemeName();
   const tilesUrl = MAP_TILES_URL[themeName];
-  const { preferences } = usePreferences();
+  const { preferences, loaded: preferencesLoaded } = usePreferences();
   const mapFeatureKeys = enabledFeatureKeys(preferences.mapFeatures);
   const { contributions } = useContributions();
-  // Extra props generic must be non-undefined or WebView props collapse to `never`
-  // (react-native-webview#3970). `object` satisfies the empty-object lint rule.
+
   const webRef = useRef<WebView<object>>(null);
+  const didCenterOnUser = useRef(false);
   const [mapReady, setMapReady] = useState(false);
 
-  const injectedConfig = useMemo(
-    () =>
-      `window.__MAP_CONFIG__ = ${JSON.stringify({
-        center,
-        zoom,
-        tilesUrl,
-      })}; true;`,
-    [center, zoom, tilesUrl],
-  );
+  const [userLocation, setUserLocation] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy: number | null;
+  } | null>(null);
 
-  const callMap = useCallback((fn: string, ...args: unknown[]) => {
+  const callMap = useCallback(<K extends MapCommand>(fn: K, ...args: MapCommandArgs[K]) => {
     const argList = args.map((a) => JSON.stringify(a ?? null)).join(', ');
     webRef.current?.injectJavaScript(`window.${fn} && window.${fn}(${argList}); true;`);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+
+    const poll = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const result = await getCurrentCoordinates();
+        if (cancelled || result.kind !== 'success') return;
+        setUserLocation({
+          latitude: result.latitude,
+          longitude: result.longitude,
+          accuracy: result.accuracy,
+        });
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void poll();
+    const id = setInterval(() => void poll(), USER_LOCATION_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapReady || !userLocation) return;
+    callMap(
+      'setUserLocation',
+      userLocation.latitude,
+      userLocation.longitude,
+      userLocation.accuracy,
+    );
+  }, [mapReady, userLocation, callMap]);
 
   const showPin = useCallback(
     (latitude: number, longitude: number, title?: string) =>
@@ -111,12 +153,20 @@ export default function MapContainer({
   }, [mapReady, contributionRevision, loadContributionMarkers]);
 
   useEffect(() => {
-    if (mapReady) callMap('setMarkers', markers);
-  }, [mapReady, markers, callMap]);
+    if (mapReady) callMap('setTilesUrl', MAP_TILES_URL[themeName]);
+  }, [mapReady, tilesUrl, callMap, themeName]);
 
   useEffect(() => {
-    if (mapReady) callMap('setView', center.latitude, center.longitude, zoom);
-  }, [mapReady, center.latitude, center.longitude, zoom, callMap]);
+    if (!mapReady || !focusKey) return;
+    didCenterOnUser.current = true;
+    callMap('setView', center.latitude, center.longitude, zoom);
+  }, [mapReady, focusKey, center.latitude, center.longitude, zoom, callMap]);
+
+  useEffect(() => {
+    if (!mapReady || !userLocation || didCenterOnUser.current) return;
+    didCenterOnUser.current = true;
+    callMap('setView', userLocation.latitude, userLocation.longitude, zoom);
+  }, [mapReady, userLocation, zoom, callMap]);
 
   const handleMessage = useCallback(
     (raw: string) => {
@@ -144,23 +194,26 @@ export default function MapContainer({
 
   return (
     <View style={styles.map}>
-      <WebView<object>
-        key={tilesUrl}
-        ref={webRef}
-        originWhitelist={['*']}
-        source={WEBVIEW_SOURCE}
-        injectedJavaScriptBeforeContentLoaded={injectedConfig}
-        style={styles.webview}
-        containerStyle={styles.webview}
-        javaScriptEnabled
-        domStorageEnabled
-        setSupportMultipleWindows={false}
-        mixedContentMode="always"
-        scrollEnabled={false}
-        scalesPageToFit={false}
-        onLoadStart={() => setMapReady(false)}
-        onMessage={(e) => handleMessage(e.nativeEvent.data)}
-      />
+      {preferencesLoaded ? (
+        <WebView<object>
+          ref={webRef}
+          originWhitelist={['*']}
+          source={WEBVIEW_SOURCE}
+          style={styles.webview}
+          containerStyle={styles.webview}
+          javaScriptEnabled
+          domStorageEnabled
+          setSupportMultipleWindows={false}
+          mixedContentMode="always"
+          scrollEnabled={false}
+          scalesPageToFit={false}
+          onLoadStart={() => {
+            setMapReady(false);
+            didCenterOnUser.current = false;
+          }}
+          onMessage={(e) => handleMessage(e.nativeEvent.data)}
+        />
+      ) : null}
 
       {place ? (
         <PlaceCard

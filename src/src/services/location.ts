@@ -1,12 +1,19 @@
 import * as Location from 'expo-location';
 
+export type LocationCoords = {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+};
+
 export type LocationResult =
-  | { kind: 'success'; latitude: number; longitude: number; address: string | null }
+  | ({ kind: 'success'; address: string | null } & LocationCoords)
   | { kind: 'permissionDenied'; canAskAgain: boolean }
   | { kind: 'servicesDisabled' }
   | { kind: 'error'; message: string };
 
 const TIMEOUT_MS = 15000;
+const POLL_TIMEOUT_MS = 4000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -15,26 +22,64 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-export async function getCurrentLocation(): Promise<LocationResult> {
-  try {
-    const permission = await Location.requestForegroundPermissionsAsync();
-    if (permission.status !== 'granted') {
-      return { kind: 'permissionDenied', canAskAgain: permission.canAskAgain };
-    }
-    if (!(await Location.hasServicesEnabledAsync())) return { kind: 'servicesDisabled' };
+async function ensureLocationReady(): Promise<
+  | { kind: 'ready' }
+  | { kind: 'permissionDenied'; canAskAgain: boolean }
+  | { kind: 'servicesDisabled' }
+> {
+  const permission = await Location.requestForegroundPermissionsAsync();
+  if (permission.status !== 'granted') {
+    return { kind: 'permissionDenied', canAskAgain: permission.canAskAgain };
+  }
+  if (!(await Location.hasServicesEnabledAsync())) return { kind: 'servicesDisabled' };
+  return { kind: 'ready' };
+}
 
-    const position =
-      (await withTimeout(
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-        TIMEOUT_MS,
-      ).catch(() => null)) ?? (await Location.getLastKnownPositionAsync());
+async function readPosition(timeoutMs: number): Promise<Location.LocationObject | null> {
+  return (
+    (await withTimeout(
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      timeoutMs,
+    ).catch(() => null)) ?? (await Location.getLastKnownPositionAsync())
+  );
+}
+
+/** Lat/lng/accuracy only — suitable for frequent map updates. */
+export async function getCurrentCoordinates(): Promise<LocationResult> {
+  try {
+    const ready = await ensureLocationReady();
+    if (ready.kind !== 'ready') return ready;
+
+    const position = await readPosition(POLL_TIMEOUT_MS);
     if (!position) return { kind: 'error', message: 'no location fix' };
 
-    const { latitude, longitude } = position.coords;
+    const { latitude, longitude, accuracy } = position.coords;
     return {
       kind: 'success',
       latitude,
       longitude,
+      accuracy: typeof accuracy === 'number' ? accuracy : null,
+      address: null,
+    };
+  } catch (e) {
+    return { kind: 'error', message: e instanceof Error ? e.message : 'location error' };
+  }
+}
+
+export async function getCurrentLocation(): Promise<LocationResult> {
+  try {
+    const ready = await ensureLocationReady();
+    if (ready.kind !== 'ready') return ready;
+
+    const position = await readPosition(TIMEOUT_MS);
+    if (!position) return { kind: 'error', message: 'no location fix' };
+
+    const { latitude, longitude, accuracy } = position.coords;
+    return {
+      kind: 'success',
+      latitude,
+      longitude,
+      accuracy: typeof accuracy === 'number' ? accuracy : null,
       address: await reverseGeocode(latitude, longitude),
     };
   } catch (e) {

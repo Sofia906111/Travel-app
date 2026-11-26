@@ -1,7 +1,6 @@
-import { PLACE_FEATURE_CLASSES } from '@/constants/map';
-import type { NominatimAddress, NominatimPlace, PlacePreview } from '@/types/nominatim';
+import type { NominatimPlace, PlacePreview } from '@/types/nominatim';
 
-export type { NominatimAddress, NominatimPlace, PlacePreview } from '@/types/nominatim';
+export type { NominatimPlace, PlacePreview } from '@/types/nominatim';
 
 export const DROPPED_PIN = 'Dropped pin';
 
@@ -17,7 +16,6 @@ type RawResult = {
   /** Present on `jsonv2` format (what we request). */
   category?: string;
   type?: string;
-  address?: NominatimAddress;
 };
 
 const BASE_URL = 'https://nominatim.openstreetmap.org';
@@ -27,48 +25,6 @@ const HEADERS = {
   'Accept-Language': 'en',
   'User-Agent': 'AccessWayTravelApp/1.0 (local-dev)',
 };
-
-function formatStreet(address: NominatimAddress | null | undefined): string | null {
-  if (!address) return null;
-  const road = address.road || address.pedestrian;
-  const street = [road, address.house_number].filter(Boolean).join(' ');
-  return street || null;
-}
-
-export function formatPlaceAddress(address: NominatimAddress | null | undefined): string | null {
-  if (!address) return null;
-  const locality =
-    address.city || address.town || address.village || address.municipality || address.suburb;
-  const parts = [formatStreet(address), address.postcode, locality, address.country].filter(
-    Boolean,
-  );
-  return parts.length ? parts.join(', ') : null;
-}
-
-function placeNameFromAddress(address: NominatimAddress | null | undefined): string | null {
-  if (!address) return null;
-  const building = address.building && address.building !== 'yes' ? address.building : null;
-  return (
-    address.amenity ||
-    address.tourism ||
-    address.shop ||
-    address.office ||
-    address.leisure ||
-    building ||
-    null
-  );
-}
-
-export function placeName(
-  label: string | null | undefined,
-  address: NominatimAddress | null | undefined,
-  featureClass: string | null | undefined,
-): string | null {
-  const fromAddress = placeNameFromAddress(address);
-  if (fromAddress) return fromAddress;
-  if (label && featureClass && PLACE_FEATURE_CLASSES.has(featureClass)) return label;
-  return null;
-}
 
 export function loadingPlace(
   id: string,
@@ -81,7 +37,7 @@ export function loadingPlace(
     latitude,
     longitude,
     name: null,
-    address: null,
+    displayName: null,
     featureClass: null,
     featureType: null,
     osmId,
@@ -95,14 +51,12 @@ export function resolvedPlace(base: PlacePreview, place: NominatimPlace | null):
     ...base,
     latitude: place?.latitude ?? base.latitude,
     longitude: place?.longitude ?? base.longitude,
-    name: place
-      ? (placeName(place.label, place.address, place.featureClass) ?? DROPPED_PIN)
-      : DROPPED_PIN,
-    address: place ? (formatPlaceAddress(place.address) ?? place.displayName) : null,
+    name: place?.name ?? DROPPED_PIN,
+    displayName: place?.displayName ?? null,
     featureClass: place?.featureClass ?? null,
     featureType: place?.featureType ?? null,
     osmType: place?.osmType ?? null,
-    osmId: place?.osmId ?? null,
+    osmId: place?.osmId ?? base.osmId,
     loading: false,
   };
 }
@@ -119,11 +73,10 @@ function parsePlace(raw: RawResult | undefined): NominatimPlace | null {
     osmType: raw.osm_type ?? null,
     latitude,
     longitude,
-    label: raw.name?.trim() || null,
+    name: raw.name?.trim() || null,
+    displayName: raw.display_name?.trim() || null,
     featureClass: raw.category ?? raw.class ?? null,
     featureType: raw.type ?? null,
-    displayName: raw.display_name?.trim() || null,
-    address: raw.address ?? null,
   };
 }
 
@@ -131,7 +84,6 @@ export async function lookupByOsmId(osmId: number): Promise<NominatimPlace | nul
   const url = new URL(`${BASE_URL}/lookup`);
   url.searchParams.set('osm_ids', `N${osmId},W${osmId},R${osmId}`);
   url.searchParams.set('format', 'jsonv2');
-  url.searchParams.set('addressdetails', '1');
 
   const response = await fetch(url.toString(), { headers: HEADERS });
   if (!response.ok) {
@@ -152,7 +104,6 @@ export async function reverseGeocode(
   url.searchParams.set('lat', String(latitude));
   url.searchParams.set('lon', String(longitude));
   url.searchParams.set('format', 'jsonv2');
-  url.searchParams.set('addressdetails', '1');
   url.searchParams.set('zoom', '18');
 
   const response = await fetch(url.toString(), { headers: HEADERS });
@@ -164,4 +115,25 @@ export async function reverseGeocode(
   const raw = (await response.json()) as RawResult;
   console.log('nominatim reverse', raw);
   return parsePlace(raw);
+}
+
+/** Forward geocode a place name / address. Returns up to `limit` matches. */
+export async function searchPlaces(query: string, limit = 8): Promise<NominatimPlace[]> {
+  const q = query.trim();
+  if (!q) return [];
+
+  const url = new URL(`${BASE_URL}/search`);
+  url.searchParams.set('q', q);
+  url.searchParams.set('format', 'jsonv2');
+  url.searchParams.set('limit', String(limit));
+
+  const response = await fetch(url.toString(), { headers: HEADERS });
+  if (!response.ok) {
+    console.log('nominatim search failed', response.status, url.toString());
+    return [];
+  }
+
+  const results = (await response.json()) as RawResult[];
+  console.log('nominatim search', q, results.length);
+  return results.map(parsePlace).filter((place): place is NominatimPlace => place != null);
 }

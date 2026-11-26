@@ -1,4 +1,3 @@
-/** Static Leaflet map shell. Center/zoom/tiles come from `window.__MAP_CONFIG__`; markers via injectJavaScript. */
 export const MAP_HTML = `<!DOCTYPE html>
 <html style="height:100%;width:100%;">
   <head>
@@ -33,6 +32,16 @@ export const MAP_HTML = `<!DOCTYPE html>
         width: 100%;
         height: 100%;
       }
+        .loc-dot {
+        width: 16px;
+        height: 16px;
+        margin-left: -8px;
+        margin-top: -8px;
+        border-radius: 50%;
+        background: #1a73e8;
+        border: 2.5px solid #fff;
+        box-shadow: 0 0 4px rgba(0,0,0,.35);
+      }
     </style>
   </head>
   <body>
@@ -54,7 +63,7 @@ export const MAP_HTML = `<!DOCTYPE html>
           ? config.tilesUrl
           : 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 
-      var map = L.map('map', { zoomControl: true }).setView(
+      var map = L.map('map', { zoomControl: false }).setView(
         [centerLat, centerLng],
         zoom
       );
@@ -74,19 +83,21 @@ export const MAP_HTML = `<!DOCTYPE html>
         }).addTo(map);
       };
 
+      window.setView = function (lat, lng, nextZoom) {
+        if (typeof lat !== 'number' || typeof lng !== 'number') return;
+        var z = typeof nextZoom === 'number' ? nextZoom : map.getZoom();
+        map.setView([lat, lng], z);
+      };
+
       var skipNextClick = false;
       var droppedPin = null;
-      var markersLayer = L.layerGroup().addTo(map);
       var contributionLayer = L.layerGroup().addTo(map);
 
-      function addPin(m, layer) {
-        var marker = L.marker([m.latitude, m.longitude]).addTo(layer || map);
+      function addPin(m) {
+        var marker = L.marker([m.latitude, m.longitude]).addTo(map);
         if (m.title) {
           marker.bindPopup(m.title);
         }
-        marker.on('click', function () {
-          sendToApp({ type: 'markerClick', id: m.id });
-        });
         return marker;
       }
 
@@ -107,25 +118,18 @@ export const MAP_HTML = `<!DOCTYPE html>
         });
       };
 
-      window.setMapMarkers = function (items) {
-        markersLayer.clearLayers();
-        if (!items || !items.length) return;
-        items.forEach(function (m) {
-          addPin(m, markersLayer);
-        });
-      };
-
       window.setContributionMarkers = function (items) {
         contributionLayer.clearLayers();
         if (!items || !items.length) return;
         items.forEach(function (m) {
           var fill = m.fillColor || '#9CA3AF';
           var marker = L.circleMarker([m.latitude, m.longitude], {
-            radius: 9,
-            color: fill,
-            weight: 2,
+            radius: 12,
+            color: '#000',
+            weight: 3,
+            opacity: 1,
             fillColor: fill,
-            fillOpacity: 0.9,
+            fillOpacity: 1,
           }).addTo(contributionLayer);
           marker.on('click', function (e) {
             L.DomEvent.stopPropagation(e);
@@ -183,6 +187,47 @@ export const MAP_HTML = `<!DOCTYPE html>
       sendToApp({ type: 'mapReady' });
       setTimeout(function () { map.invalidateSize(); }, 100);
       window.addEventListener('resize', function () { map.invalidateSize(); });
+
+
+      var userLayer = L.layerGroup().addTo(map);
+      var userMarker = null;
+      var accuracyCircle = null;
+
+      window.setUserLocation = function (lat, lng, accuracy) {
+        var latlng = [lat, lng];
+
+        if (!userMarker) {
+          userMarker = L.marker(latlng, {
+            icon: L.divIcon({
+              className: '',           // avoid Leaflet's default white square
+              html: '<div class="loc-dot"></div>',
+              iconSize: [16, 16],
+              iconAnchor: [8, 8],
+            }),
+            interactive: false,
+            zIndexOffset: 1000,
+          }).addTo(userLayer);
+        } else {
+          userMarker.setLatLng(latlng);
+        }
+
+        if (typeof accuracy === 'number' && accuracy > 0) {
+          if (!accuracyCircle) {
+            accuracyCircle = L.circle(latlng, {
+              radius: accuracy,
+              color: '#1a73e8',
+              weight: 1,
+              fillColor: '#1a73e8',
+              fillOpacity: 0.12,
+              interactive: false,
+            }).addTo(userLayer);
+          } else {
+            accuracyCircle.setLatLng(latlng).setRadius(accuracy);
+          }
+        }
+      };
+
+
     </script>
   </body>
 </html>`;

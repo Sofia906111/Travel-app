@@ -95,7 +95,6 @@ export default function ContributeScreen() {
     announce(text);
   };
 
-  // Adjust form when route params change (React-recommended alternative to syncing in an effect).
   const nextSignature = [
     params.address,
     params.name,
@@ -107,6 +106,7 @@ export default function ContributeScreen() {
     params.latitude,
     params.longitude,
   ].join('|');
+
   if (nextSignature !== paramsSignature) {
     setParamsSignature(nextSignature);
     const address = typeof params.address === 'string' ? params.address.trim() : '';
@@ -206,11 +206,6 @@ export default function ContributeScreen() {
   };
 
   const onDelete = (item: Contribution) => {
-    if (Platform.OS === 'web') {
-      const { confirm } = globalThis as { confirm?: (text: string) => boolean };
-      if (confirm?.(`Delete "${item.address}"?`)) doDelete(item);
-      return;
-    }
     Alert.alert('Delete contribution?', item.address, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => doDelete(item) },

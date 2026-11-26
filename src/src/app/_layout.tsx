@@ -27,6 +27,7 @@ function ThemedApp() {
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="auth" options={{ headerShown: true, title: 'Authenticate' }} />
+        <Stack.Screen name="search" options={{ headerShown: true, title: 'Search place' }} />
       </Stack>
     </ThemeProvider>
   );
